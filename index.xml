@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Hi, I’m Janmajaya. on Janmajaya Mall</title>
+		<link>https://janmajaya.com/</link>
+		<description>Recent content in Hi, I’m Janmajaya. on Janmajaya Mall</description>
+		<generator>Hugo</generator>
+		<language>en</language>
+		
+		
+		
+		
+			<lastBuildDate>Mon, 14 Sep 2026 12:43:17 +0530</lastBuildDate>
+		
+			<atom:link href="https://janmajaya.com/index.xml" rel="self" type="application/rss+xml" />
+			<item>
+				<title>September 14, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-14/</link>
+				<pubDate>Mon, 14 Sep 2026 12:43:17 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-14/</guid>
+				<description>&lt;p&gt;This article from &lt;a href=&#34;https://lucumr.pocoo.org/2026/9/5/latent-powers/&#34;&gt;pocoo&lt;/a&gt;&#xA; is closely related to some of our product thinking on PAC. It&amp;rsquo;s true that LLMs are incredibly useful in pursuing &amp;lsquo;random&amp;rsquo; interests, or long-due ideas/experiments, not only for hackers but, increasingly, for the general crowd. Many of the interests are nothing new. It&amp;rsquo;s likely that someone has already tried out something similar before. And so, a LLM gradually nudges the user towards a suitable solution. A unsurprising consequence of this is that the end results often overlap.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Yet another privacy solution on Ethereum</title>
+				<link>https://janmajaya.com/blog/yapsoe.html</link>
+				<pubDate>Sat, 04 Jul 2026 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/yapsoe.html</guid>
+				<description>&lt;p&gt;There are multiple approaches for privacy on public blockchains: 2-state commitment+nullifier model, MPC/threshold-FHE, and TEEs. Each with its own set of benefits &amp;amp; limitations. Here I attempt to sketch yet another privacy solution. Like others, it has limitations and some advantages. It&amp;rsquo;s limited in the sense that it does not provide as strong as privacy guarantees as 2-state commitment+nullifer model. Its advantages are that it&amp;rsquo;s compatible with the EVM state model, while providing stronger guarantees than any FHE/MPC solution, or validiums.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>ULPSI for private transaction retrieval</title>
+				<link>https://janmajaya.com/blog/uplsi.html</link>
+				<pubDate>Wed, 30 Oct 2024 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/uplsi.html</guid>
+				<description>Unbalanced labelled private set interaction to retrieve private transactions</description>
+			</item>
+			<item>
+				<title>Oblivious Message Retrieval</title>
+				<link>https://janmajaya.com/blog/omr.html</link>
+				<pubDate>Mon, 30 Sep 2024 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/omr.html</guid>
+				<description>Design of oblivious message retrieval</description>
+			</item>
+	</channel>
+</rss>

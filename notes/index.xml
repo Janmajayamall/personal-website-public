@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Notes on Janmajaya Mall</title>
+		<link>https://janmajaya.com/notes/</link>
+		<description>Recent content in Notes on Janmajaya Mall</description>
+		<generator>Hugo</generator>
+		<language>en</language>
+		
+		
+		
+		
+			<lastBuildDate>Mon, 14 Sep 2026 12:43:17 +0530</lastBuildDate>
+		
+			<atom:link href="https://janmajaya.com/notes/index.xml" rel="self" type="application/rss+xml" />
+			<item>
+				<title>September 14, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-14/</link>
+				<pubDate>Mon, 14 Sep 2026 12:43:17 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-14/</guid>
+				<description>&lt;p&gt;This article from &lt;a href=&#34;https://lucumr.pocoo.org/2026/9/5/latent-powers/&#34;&gt;pocoo&lt;/a&gt;&#xA; is closely related to some of our product thinking on PAC. It&amp;rsquo;s true that LLMs are incredibly useful in pursuing &amp;lsquo;random&amp;rsquo; interests, or long-due ideas/experiments, not only for hackers but, increasingly, for the general crowd. Many of the interests are nothing new. It&amp;rsquo;s likely that someone has already tried out something similar before. And so, a LLM gradually nudges the user towards a suitable solution. A unsurprising consequence of this is that the end results often overlap.&lt;/p&gt;</description>
+			</item>
+	</channel>
+</rss>
