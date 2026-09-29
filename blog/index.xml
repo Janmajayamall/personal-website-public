@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Blogs on Janmajaya Mall</title>
+		<link>https://janmajaya.com/blog/index.html</link>
+		<description>Recent content in Blogs on Janmajaya Mall</description>
+		<generator>Hugo</generator>
+		<language>en</language>
+		
+		
+		
+		
+			<lastBuildDate>Sat, 04 Jul 2026 00:00:00 +0530</lastBuildDate>
+		
+			<atom:link href="https://janmajaya.com/blog/index.xml" rel="self" type="application/rss+xml" />
+			<item>
+				<title>Yet another privacy solution on Ethereum</title>
+				<link>https://janmajaya.com/blog/yapsoe.html</link>
+				<pubDate>Sat, 04 Jul 2026 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/yapsoe.html</guid>
+				<description>&lt;p&gt;There are multiple approaches for privacy on public blockchains: 2-state commitment+nullifier model, MPC/threshold-FHE, and TEEs. Each with its own set of benefits &amp;amp; limitations. Here I attempt to sketch yet another privacy solution. Like others, it has limitations and some advantages. It&amp;rsquo;s limited in the sense that it does not provide as strong as privacy guarantees as 2-state commitment+nullifer model. Its advantages are that it&amp;rsquo;s compatible with the EVM state model, while providing stronger guarantees than any FHE/MPC solution, or validiums.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>ULPSI for private transaction retrieval</title>
+				<link>https://janmajaya.com/blog/uplsi.html</link>
+				<pubDate>Wed, 30 Oct 2024 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/uplsi.html</guid>
+				<description>Unbalanced labelled private set interaction to retrieve private transactions</description>
+			</item>
+			<item>
+				<title>Oblivious Message Retrieval</title>
+				<link>https://janmajaya.com/blog/omr.html</link>
+				<pubDate>Mon, 30 Sep 2024 00:00:00 +0530</pubDate>
+				<guid>https://janmajaya.com/blog/omr.html</guid>
+				<description>Design of oblivious message retrieval</description>
+			</item>
+	</channel>
+</rss>

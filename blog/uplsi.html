@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ULPSI for private transaction retrieval · Janmajaya Mall</title>
+    
+    <link rel="canonical" href="https://janmajaya.com/blog/uplsi.html" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+    
+    <link rel="stylesheet" href="/styles.css" />
+    
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: { fontCache: 'global' }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page-shell article-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current="page">Blogs</a>
+        <a href="/notes/">Notes</a>
+        
+      </nav>
+      <main id="main">
+        
+  <a class="back-link" href="/">← Back to blogs</a>
+  <article class="post">
+    <header class="post-header">
+      
+  <p class="blog-date"><a href="/blog/uplsi.html"><time datetime="2024-10-30T00:00:00&#43;05:30">October 30, 2024</time></a></p>
+
+
+      <h1>ULPSI for private transaction retrieval</h1>
+      <p class="intro-copy">Unbalanced labelled private set interaction to retrieve private transactions</p>
+      
+
+    </header>
+    <div class="post-content"><p>ULPSI stands for <a href="https://github.com/Janmajayamall/ulpsi">Unbalanced labelled private set intersection</a>
+, but is somewhat of a misnomer for what the repository implements. Really what it implements is Unbalanced labelled private set intersection with the caveat that only the client&rsquo;s set stays private, not the server&rsquo;s set.</p>
+<p>I stumbled upon ULPSI when trying to solve the problem of transaction retrieval on privacy preserving chains. After experimenting with <a href="https://github.com/Janmajayamall/ObliviousMessageRetrieval">Oblivious message retrieval</a>
+ we realised that it couldn&rsquo;t scale to many users nor its performance could be improved further on CPUs. Although, I still think OMR implementation on GPU can give desired latency between the sender publishing the transaction and the user receiving it, there will be high costs for running such a server and there&rsquo;s no clear path to funding them. Moving on, we reduced the difficulty of the problem. Instead of trying to figure out a way for users to find their transactions without any previous information, we asked how users can retrieve their transactions privately given that they share a secret with the sender (Don&rsquo;t ask how they will share the secret in the first place. I have no clue).</p>
+<p>For example, assume that Alice and Bob share a secret and keep track of a nonce between them. To send a transaction to Bob, Alice tags the transaction with the hash of shared secret and latest nonce value. To retrieve the transaction Bob optimistically searches for tags corresponding to the next couple of nonces in sequence. Bob then increments the nonce to +1 of the nonce that returned a transaction, thus setting the value as the latest nonce for future transactions.</p>
+<p>The non-trivial part is finding that the tag exists and subsequently retrieving the transaction privately. Thinking of the server as having a set of all tags and corresponding transactions and the client set as all optimistic tags that the client generates using shared secrets of all of its known contacts, the client needs to retrieve transactions corresponding to tags that sit in intersection of client&rsquo;s set and server&rsquo;s set without leaking any information. This hints that we can structure the problem as a private set intersection with additional requirement of returning the label (i.e. transaction) corresponding to intersecting values. Since there will be many transactions, another key requirement is that the implementation must be efficient in an unbalanced case where the client&rsquo;s set is way smaller than the server&rsquo;s set.</p>
+<p>To simplify the problem further, we can take advantage of the fact that transactions can be split into multiple field elements each of size 256 bits. For example, a typical transaction on Aztec may have 16 encrypted notes, where each note is a field element of size 256 bits. Now we can assign tags to each field element (we don&rsquo;t actually need to assign a new tag to each field element. Instead, we can derive tags for each field element from the tag of transaction). Thus the problem is now reduced to enabling clients to retrieve field elements of size 256 bits corresponding to tags (of size 256 bits as well) that are in intersection of client&rsquo;s set and server&rsquo;s set with the constraint that protocol remains efficient even when client&rsquo;s set is way smaller than server&rsquo;s set.</p>
+<p>After searching through PSI literature for a while, I came across <a href="https://eprint.iacr.org/2021/1116">APSI</a>
+ that implements private set intersection using  levelled HE (homomorphic encryption). Even though HE isn&rsquo;t required for PSI, apparently the only known efficient way to construct asymmetric (i.e. unbalanced) private set intersection is using HE. Another nice thing about APSI is that (as outlined in paper) it can easily be extended to return the labels corresponding to tags at intersection.</p>
+<p>I implemented a slightly simplified version of APSI protocol with the difference being that the server&rsquo;s set is assumed to be public. For the curious, a brief description of implementation lives <a href="https://github.com/Janmajayamall/ulpsi/blob/main/notes/Labelled%20PSI.md">here</a>
+. Even though the implementation is quite flexible with the size of tags and corresponding labels, I am mostly concerned with tags and label sizes of 256 bits. Since I had somewhat arbitrarily assumed a maximum client set size of 4096, I set the parameters that have optimal server runtime when that is the case. I benchmarked client upload cost (ie client-server communication), client download cost (ie server-client communication), and server runtime for client set size 4096 with multiple server set sizes - 10M, 16M, 100M, 200M, 300M, 500M.</p>
+<br>
+<table>
+	<thead>
+			<tr>
+					<th>Client set size</th>
+					<th>Server set size</th>
+					<th>Item size (bits)</th>
+					<th>Label size (bits)</th>
+					<th>Client upload cost (MB)</th>
+					<th>Client download cost (MB)</th>
+					<th>Server runtime (ms)</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>4000</td>
+					<td>10M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>11.6</td>
+					<td>4798</td>
+			</tr>
+			<tr>
+					<td>4000</td>
+					<td>16M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>14.1</td>
+					<td>5906</td>
+			</tr>
+			<tr>
+					<td>4000</td>
+					<td>100M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>51.2</td>
+					<td>18881</td>
+			</tr>
+			<tr>
+					<td>4000</td>
+					<td>200M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>94.6</td>
+					<td>33976</td>
+			</tr>
+			<tr>
+					<td>4000</td>
+					<td>300M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>138.512</td>
+					<td>49806</td>
+			</tr>
+			<tr>
+					<td>4000</td>
+					<td>500M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>21</td>
+					<td>227</td>
+					<td>80676</td>
+			</tr>
+	</tbody>
+</table>
+<p><em>Benchmarks were performed on <a href="https://aws.amazon.com/ec2/instance-types/">x2idn.16xlarge</a>
+ which is equipped with 64 vcpus (i.e. 32 cores)</em></p>
+<p><em>Not surprisingly, server runtime and client download cost increases linearly with server set size.</em></p>
+<br>
+When others started to poke me with questions of how it varies across different client set sizes, I realised I had been a bit lazy before. So with a bit of procrastination (preprocessing millions of values takes a lot of time) I ran the benchmarks again for following client set sizes, 512, 1024, 2048. I spent some time trying to find optimal parameters for various client set sizes I intended to benchmark. But realising it was taking too long and I couldn't detect clear patterns, I gave up. So I ended up using the same parameters as I had used for client set size 4096. 
+<table>
+	<thead>
+			<tr>
+					<th>Client set size</th>
+					<th>Server set size</th>
+					<th>Item size (bits)</th>
+					<th>Label size (bits)</th>
+					<th>Client upload cost (MB)</th>
+					<th>Client download cost (MB)</th>
+					<th>Server runtime (ms)</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>512</td>
+					<td>10M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>2.55</td>
+					<td>5.27</td>
+					<td>2566</td>
+			</tr>
+			<tr>
+					<td>512</td>
+					<td>100M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>2.55</td>
+					<td>44.83</td>
+					<td>16873</td>
+			</tr>
+			<tr>
+					<td>512</td>
+					<td>300M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>2.55</td>
+					<td>132.74</td>
+					<td>48922</td>
+			</tr>
+	</tbody>
+</table>
+<table>
+	<thead>
+			<tr>
+					<th>Client set size</th>
+					<th>Server set size</th>
+					<th>Item size (bits)</th>
+					<th>Label size (bits)</th>
+					<th>Client upload cost (MB)</th>
+					<th>Client download cost (MB)</th>
+					<th>Server runtime (ms)</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>1024</td>
+					<td>10M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>5.10</td>
+					<td>6.05</td>
+					<td>2897</td>
+			</tr>
+			<tr>
+					<td>1024</td>
+					<td>100M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>5.10</td>
+					<td>45.71</td>
+					<td>17450</td>
+			</tr>
+			<tr>
+					<td>1024</td>
+					<td>300M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>5.10</td>
+					<td>133.62</td>
+					<td>49256</td>
+			</tr>
+	</tbody>
+</table>
+<table>
+	<thead>
+			<tr>
+					<th>Client set size</th>
+					<th>Server set size</th>
+					<th>Item size (bits)</th>
+					<th>Label size (bits)</th>
+					<th>Client upload cost (MB)</th>
+					<th>Client download cost (MB)</th>
+					<th>Server runtime (ms)</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>2048</td>
+					<td>10M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>10.19</td>
+					<td>8.20</td>
+					<td>3764</td>
+			</tr>
+			<tr>
+					<td>2048</td>
+					<td>100M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>10.19</td>
+					<td>47.27</td>
+					<td>17717</td>
+			</tr>
+			<tr>
+					<td>2048</td>
+					<td>100M</td>
+					<td>256</td>
+					<td>256</td>
+					<td>10.19</td>
+					<td>135.28</td>
+					<td>49617</td>
+			</tr>
+	</tbody>
+</table>
+<p><em>As expected client download cost and server runtime increases with server set size in all 3 tables. But notice the odd behaviour when server set size is 10M. Across different client set sizes, with server set size 10M client download cost and server runtime increases, which isn&rsquo;t the case with server set sizes 100M and 300M.</em></p>
+<p>A quick observation is that client upload cost increases linearly with client set size as expected. But there&rsquo;s something odd here. For a relatively small server set size, 10M, client download cost and server runtime increases linearly across different client set sizes. But the effect apparently diminishes with server set size 100M and completely disappears with server set size 300M. This also invalidates, for small server set sizes, my hypothesis (quite straightforward to reason) that both client download cost and server runtime depend on server set size and wouldn&rsquo;t change much across different client sizes.</p>
+<p>I had missed something obvious before, that with bigger client set sizes the server is forced to insert elements in a database with greater no. of rows. Moreover, database columns are inserted in sets of fixed size. For example, in implementation the columns increase in sets of 1305. So you can only have 1305, 1305 x 2, 1305 x 3 columns, so on and so forth and not 1, 2, 3&hellip; columns. For relatively smaller databases, with high client set size, the server isn&rsquo;t able to tightly pack items in columns of the database. This causes client download and server runtime to get worse as client set size increases. This is confirmed by the absence of this effect when server set size is 300M, where server is able to pack elements in columns very tightly.</p>
+<p>One way to avoid client download and server runtime to get worse as client set size increases on smaller server set sizes is by reducing the fixed set size of columns (i.e. reducing 1305!). This is what I meant before by not choosing optimal parameters suitable for different client set sizes. However, I think that even if I were to set optimal parameters for each client set size it will only improve server&rsquo;s runtime but will have negligible effect on client&rsquo;s download cost. This is because we can reduce the fixed size of set of columns which will decrease server&rsquo;s runtime but we cannot reduce no. of rows which depends on the client&rsquo;s set size.</p>
+<!-- What's next?
+
+I honestly don't have plan (& time) to maintain the repository long term. But if of you think that this can helpful, feel free to contact me.
+
+Although client's download cost scales sub-linear with server's database, I don't think any client will be willing to download >100Mb of data just for transaction retrieval. Which is why it will be necessary to chunk server's database into smaller databases (probably by chunking transactions into epochs). No matter what becomes the norm, I think ULPSI is still a good candidate for transaction retrieval. Mainly because, server side processing is highly parallelisable (a good thing to have to reduce latency per client request). But is it feasible to be deployed in production yet? I really don't know. Client communication is more of a concern than server's processing time. We really don't want to surprise users with a few hundreds of MB of data download per day just to retrieve transactions. But maybe they will be ok, and probably this will improve in future. What left is someone to be a daring soul and deploy this in production, to get a feedback on how this works in reality (this applies not just to ULPSI, but any other cryptographic based approaches for anonymous messaging, for ex. PIR).
+
+There are other candidates (for ex, SimplePIR/DoublePIR) which might have lesser client communication cost, thus may be better than ULPSI. However PIR (private information retrieval) approach may require cuckoo hashing server's dataset to reduce collisions, thus increasing client's communication cost by a fixed factor (probably 3x or 4x). So it is still unclear what's the best way forward. -->
+</div>
+  </article>
+
+      </main>
+    </div>
+  </body>
+</html>

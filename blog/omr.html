@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oblivious Message Retrieval · Janmajaya Mall</title>
+    
+    <link rel="canonical" href="https://janmajaya.com/blog/omr.html" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+    
+    <link rel="stylesheet" href="/styles.css" />
+    
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: { fontCache: 'global' }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page-shell article-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current="page">Blogs</a>
+        <a href="/notes/">Notes</a>
+        
+      </nav>
+      <main id="main">
+        
+  <a class="back-link" href="/">← Back to blogs</a>
+  <article class="post">
+    <header class="post-header">
+      
+  <p class="blog-date"><a href="/blog/omr.html"><time datetime="2024-09-30T00:00:00&#43;05:30">September 30, 2024</time></a></p>
+
+
+      <h1>Oblivious Message Retrieval</h1>
+      <p class="intro-copy">Design of oblivious message retrieval</p>
+      
+
+    </header>
+    <div class="post-content"><p><em>Thanks to <a href="https://www.lev.zip/">Lev Stambler</a>
+ for pointing out errors in first draft and rechecking once fixed.</em></p>
+<p>Oblivious message retrieval is a pretty cool application of homomorphic encryption using which you can route asynchronous message via a server to someone without leaking any metadata. It&rsquo;s like sending a mail to someone without leaking to mail server who the actual recipient it. It has pretty useful applications ranging from messaging without leaking metadata to improving UX of privacy chains. It was first outlined in <a href="https://eprint.iacr.org/2021/1256.pdf">this</a>
+ paper and I have a somewhat efficient implementation of it <a href="https://github.com/Janmajayamall/ObliviousMessageRetrieval">here</a>
+. Assuming that since you are reading this, you are obviously interested in learning how it works, let&rsquo;s dive in the details!</p>
+<p>Let&rsquo;s define a few things that will come in handy later. We will refer to the server as big machine to which every user sends their messages and receives their messages from. Sender and recipient are defined as usual, that is the one who&rsquo;s sending and the one who is receiving.</p>
+<p>The way asynchronous messaging works today is very simple, the sender sends to the intended recipient via the server. For the server to recognise the recipient and send them their pending messages when they come online, the sender is additionally required to mention for whom the message is intended. This works, but the server learns all your messages and this isn&rsquo;t what we are trying to achieve.</p>
+<p>So how can we improve? Let&rsquo;s do one thing, let the sender send the intended recipient&rsquo;s identity along with message to the server, but this time hide it using encryption. And let&rsquo;s term this as &ldquo;clue&rdquo;, since the recipient info is not in the clear. But if the recipient is encrypted, then how would the sever ever learn to whom to send this message to? This is only possible if the encryption scheme using which a clue is encrypted allows the server to check whether a given clue belongs to the user. If you are curious whether there exists such a scheme, then answer is yes! But for now let&rsquo;s just define our own.</p>
+<p>I will be calling this scheme FHE, which stands for fully homomorphic encryption, since it allows for computation over encrypted data.</p>
+<p>Our FHE scheme is quite simple:</p>
+<ol>
+<li>We can encrypt a plaintext <span class="math inline">$pt \in \{0,1\}^n$</span> with <span class="math inline">$\text{pk} = \text{FHE.publicKey}(sk)$</span> corresponding to secret key <span class="math inline">$sk$</span> as:
+
+<div class="math display">$$ct = [\text{FHE.encrypt(pt[0], pk)}, ..., \text{FHE.encrypt(pt[n-1], pk)}]$$</div></li>
+<li>Given a ciphertext <span class="math inline">$ct$</span>, which encrypts <span class="math inline">$pt$</span> as <span class="math inline">$\text{FHE.encrypt(pt, pk)}$</span> where <span class="math inline">$pk$</span> is public key corresponding to secret key <span class="math inline">$sk$</span>, we can decrypt <span class="math inline">$ct$</span> as:
+
+<div class="math display">$$pt = [\text{FHE.decrypt(ct[0], sk)}, ..., \text{FHE.decrypt(ct[n-1], sk)}]$$</div></li>
+<li>We can perform additions, subtractions, and multiplications between two ciphertexts and a ciphertext and plaintext.</li>
+</ol>
+<p>Since <span class="math inline">$pt \in \{0, 1\}^n$</span>, if <span class="math inline">$ct$</span> encrypting <span class="math inline">$pt = [1]^n$</span> (ie a vector of size n filled with 1) is attempted to decrypt using incorrect <span class="math inline">$sk_{incorrect}$</span> then <span class="math inline">$\text{FHE.decrypt}(ct[i], sk_{incorrect})$</span> will equal 1 with probability <span class="math inline">$\frac{1}{2}$</span>. Thus, the probability that decrypting with <span class="math inline">$sk_{incorrect}$</span> results into correct <span class="math inline">$pt = [1]^n$</span> equals <span class="math inline">$\frac{1}{2}^n$</span>. This implies:
+</p>
+<div class="math display">$$\prod_{i=0}^{n-1}\text{FHE.decrypt}(ct[i], sk_{incorrect}) = 0$$</div><p>
+with probability <span class="math inline">$1 - \frac{1}{2}^n$</span>. We can further increase <span class="math inline">$n$</span> to decrease false positives.</p>
+<p>Using point (3) we can write a function that computes <span class="math inline">$\text{FHE.decrypt}$</span> homomorphically given an encrypted secret key. In other words, we can write FHE circuit <span class="math inline">$\text{FHE.function1(.,.)}$</span> such that <span class="math inline">$\text{FHE.function1}(\text{FHE.encrypt(pt[i], pk)}, ct_{sk}) = \text{FHE.encrypt}(pt[i], pk)$</span> with probability 1 when <span class="math inline">$ct_{sk}$</span> is correct encrypted secret key <span class="math inline">$sk$</span> and <span class="math inline">$pk$</span> is public key corresponding to <span class="math inline">$sk$</span>, otherwise with probability <span class="math inline">$\frac{1}{2}$</span>. Following from above we have,
+</p>
+<div class="math display">$$\prod_{i=0}^{n-1}\text{FHE.function1}(\text{FHE.encrypt(1, pk)}, ct_{sk}) = \text{FHE.encrypt(1, pk)}$$</div><p>
+only when <span class="math inline">$ct_{sk}$</span> is encryption of <span class="math inline">$sk$</span> and <span class="math inline">$pk$</span> is public key corresponding to <span class="math inline">$sk$</span> with high probability. Just for ease, let&rsquo;s call the function above <span class="math inline">$\text{encryptsOne}(ct, ct_{sk})$</span>.</p>
+<p>This leads to our first simple construction of Oblivious message <del>retrieval</del> detection!</p>
+<ol>
+<li>Every user generates their public <span class="math inline">$pk_i$</span> using their secret key <span class="math inline">$sk_i$</span> as <span class="math inline">$pk_i = FHE.publicKey(sk_i)$</span> and makes it public, so that that anyone can send them messages. The user also needs to encrypt their secret key <span class="math inline">$sk_i$</span> as <span class="math inline">$ct_{sk_i} = FHE.encrypt(sk_i, sk_i)$</span> and send <span class="math inline">$ct_{sk_i}$</span> to the server, so that the server can homomorphically find clues intended for the user.</li>
+<li>To send a message to <span class="math inline">$user_i$</span>, the sender first retrieves <span class="math inline">$user_i$</span>&rsquo;s corresponding public key <span class="math inline">$pk_i$</span> and encrypts <span class="math inline">$pt = [1]^n$</span> using it as <span class="math inline">$ct$</span> and sets <span class="math inline">$ct$</span> as the clue. The sender sends the clue and corresponding message to the server.</li>
+<li>The server collects several messages and clues over time. For a given user <span class="math inline">$user_i$</span>, the server uses their corresponding <span class="math inline">$ct_{sk_i}$</span> and computes <span class="math inline">$encryptsOne(clue_j, ct_{sk_i})$</span> to obtain either <span class="math inline">$FHE.encrypt(1, pk_{i})$</span> or <span class="math inline">$FHE.encrypt(0, pk_i)$</span> for all collected clues. Since for <span class="math inline">$clue_{j}$</span> <span class="math inline">$encryptsOne(clue_j, ct_{sk_i})$</span> outputs <span class="math inline">$FHE.encrypt(1, pk_i)$</span> only when <span class="math inline">$clue_j$</span> was encrypted using <span class="math inline">$pk_i$</span>, output ciphertext indicates whether <span class="math inline">$clue_j$</span> is intended for <span class="math inline">$user_i$</span>. Let&rsquo;s call these output ciphertexts as pertinency ciphertexts.</li>
+</ol>
+<p>Server can send the entire pertinency ciphertexts collection to the user and the user can then decrypt to find the indices of messages that are for them. The index corresponding to ciphertext that decrypts to 1 is for the user and the rest are not. Assuming there exists a way for the user to query messages corresponding to an index without leaking index to the server (for example, using private information retrieval), user can then query their messages.</p>
+<p>But there are many problems with the trivial construction that we described above. First being, it is not oblivious message RETRIEVAL since we don&rsquo;t send the corresponding messages back to user. Second, pertinency ciphertext collection is of size of all messages. So if there are million messages, the user will have to download a million messages and a pertinency collection with a million pertinency ciphertexts. Another problem is size of ciphertexts. All FHE schemes produce ciphertexts that are really big. This implies each clue will be big as well which isn&rsquo;t ideal. Another problem is computing <span class="math inline">$FHE.function1(.,.)$</span>. For many FHE schemes (except TFHE,FHEW) homomorphic decryption of ciphertext is quite compute expensive (bootstrapping is expensive!) and naively implementing <span class="math inline">$FHE.function1(.,.)$</span> will result in impractical construction.
+<br></p>
+<h2 id="transciphering-to-the-rescue">Transciphering to the rescue!</h2>
+<p>To construct something efficient we will need two different schemes, one that supports homomorphic operations over encrypted data (let&rsquo;s just call this scheme A) and another one which we use to encrypt clues (scheme B). Additionally we require that encryption scheme we use for clues must be friendly to decrypt using the homomorphic encryption (HE) scheme.</p>
+<p><strong>Note:</strong> Notice that I have switched from using FHE to HE. This is because a FHE scheme (ie one that supports bootstrapping and indefinite compute) is not necessary for us, we can do away with levelled homormorphic encryption. Levelled HE simply means we can perform only a pre-defined number of homomorphic operations.</p>
+<p>The idea remains the same as before, but now we use two different encryption schemes. The sender encrypts the clue using scheme B and clues are decrypted homomorphically to generate pertinency ciphertexts using scheme A. This technique of switching encryption scheme is generally known as transciphering.</p>
+<h2 id="pvw-scheme-b">PVW (scheme B)</h2>
+<p>PVW encryption is a similar to Regev LWE encryption and turns out PVW satisfies all the property that we want scheme B to have. Its decryption function is simply a matrix vector multiplication over a prime modulus (ie a bunch of inner products between rows vectors of matrix and another vector), which is easy to implement using BFV/BGV FHE scheme. Its ciphertext size is quite small (~around 1kb for 120 bit security). Its plaintext is a vector of bits. Thus we can say that a clue corresponds to encrypting a vector filled with 0s and a clue is intended for a given user with PVW secret key <span class="math inline">$sk_{pvw}$</span> only when clue&rsquo;s ciphertext decrypts to a vector filled with 0, otherwise not.</p>
+<p>To understand OMR construction that we will build, I will briefly describe PVW parameters and encryption, decryption functions.</p>
+<p>PVW is parameterised using 5 parameters, <span class="math inline">$n$</span>, <span class="math inline">$l$</span>, ciphertext modulus <span class="math inline">$q$</span>, <span class="math inline">$m$</span>, and gaussian distribution <span class="math inline">$\sigma$</span> and must be chosen such that they provide adequate security. For example, in OMR implementation we have set <span class="math inline">$n$</span> as 450, <span class="math inline">$l$</span> as 4, <span class="math inline">$m$</span> as 16000, <span class="math inline">$q$</span> as 65537, and <span class="math inline">$\sigma$</span> of normal distribution as 1.3. Additionally, since we decrypt PVW ciphertext using its decryption circuit in our HE scheme, the plaintext space of HE scheme must equal the ciphertext modulus <span class="math inline">$q$</span> of PVW.</p>
+<p>The plaintext <span class="math inline">$pt$</span> of PVW is a vector <span class="math inline">$\in \{0,1\}^l$</span> and secret key <span class="math inline">$sk$</span> is <span class="math inline">$\in \mathbb{Z}_q^{n \times l}$</span>.</p>
+<p>To generate public key <span class="math inline">$pk \in (\mathbb{Z}_q^{l \times m}, \mathbb{Z}_q^{n \times m})$</span>, sample randomly <span class="math inline">$A \in \mathbb{Z}_q^{n\times m}$</span>, then sample error matrix <span class="math inline">$E$</span> from gaussian distribution with standard deviation <span class="math inline">$\sigma$</span> (<span class="math inline">$E \in \chi_e^{l \times m}$</span>). Set <span class="math inline">$pk$</span> as
+</p>
+<div class="math display">$$pk = (sk^T\cdot A &#43;E, A) $$</div><p>To encrypt a message vector <span class="math inline">$t \in \{0,1\}^{l}$</span> using <span class="math inline">$pk$</span>, first calculate <span class="math inline">$t&#39; = round(\frac{3q}{4})\cdot t$</span>. Then sample <span class="math inline">$u$</span> as ephemeral key <span class="math inline">$\in \{0,1\}^m$</span> and set <span class="math inline">$ct$</span> as:
+</p>
+<div class="math display">$$ct = (pk[0]\cdot u &#43; t&#39;, pk[1] \cdot u) \in (\mathbb{Z}_q^{l}, \mathbb{Z}_q^{n}) $$</div><p>To decrypt ciphertext <span class="math inline">$ct$</span>, calculate:
+</p>
+<div class="math display">$$ct[0] - sk^T ct[1] = t&#39;&#39; \in \mathbb{Z}_q^{l}$$</div><p>
+To get message <span class="math inline">$t$</span>, set element in <span class="math inline">$t$</span> to 0 if its corresponding element in <span class="math inline">$t&#39;&#39;$</span> is <span class="math inline">$\leq q/2$</span> otherwise set it to 1.</p>
+<p>If you are familiar with costs of homomorphic operations, which I will introduce in a bit, there are two difficult bits in implementing the decryption of PVW homomorphically:</p>
+<ol>
+<li>Calculating <span class="math inline">$sk^T ct[1]$</span>. Since matrix vector multiplication boils down to inner products between row vectors of <span class="math inline">$sk^T$</span> and vector <span class="math inline">$ct[1]$</span>, this requires <span class="math inline">$l$</span> inner products of vectors with length <span class="math inline">$n$</span>.</li>
+<li>Checking <span class="math inline">$\leq q/2$</span> is not trivial. In fact, it requires an entire polynomial evaluation of degree equivalent to <span class="math inline">$q - 1$</span>.</li>
+</ol>
+<p>Since in OMR implementation we consider encryption of vector of 0s as a clue, we modify checking <span class="math inline">$\leq q/2$</span> to reduce false positive. With clues as vector of 0s, a clue must decrypt to 0s only when it is decrypted using <span class="math inline">$sk$</span> corresponding to public key <span class="math inline">$pk$</span> with which clue was generated, otherwise not with high probability. To further make false positive negligible, we first shift <span class="math inline">$ct[0] - sk^Tct[1]$</span> towards 0 by subtracting <span class="math inline">$\frac{q}{4}$</span> and restrict expected range for 0 to <span class="math inline">$q - 850 \leq x \leq 850$</span>. We also switch the bits when calculating the range function, so that 1 indicates that clue is intended for user (ie clue is encryption of 0s using user&rsquo;s <span class="math inline">$pk$</span>) and 0 indicates not.</p>
+<div class="math display">$$
+f_r(x) = \begin{cases}
+             1  &amp; \text{if }  q - 850 \leq x \leq 850 \\
+             0  &amp; \text{otherwise}
+\end{cases}
+$$</div><p><strong>Instead of checking <span class="math inline">$\leq \frac{q}{2}$</span>, we evaluate <span class="math inline">$f(x)$</span> as the range function.</strong>
+<br></p>
+<h2 id="a-short-primer-on-bfv-he-scheme-scheme-a">A short primer on BFV HE scheme (scheme A)</h2>
+<p>We will be using BFV homomorphic encryption scheme for our construction because it enables quite efficient operations over a prime modulus (remember? PVW decryption algorithm works over a prime modulus!). Additionally, BFV ciphertext can be viewed as a vector of slots where homomophic operations on a BFV ciphertext corresponds to operations over values in slot modulo the prime modulus. Thus cost of single BFV homomorphic operation is amortised over homomoprhic operations over many slots. Since a single BFV ciphertext may contain many thousands of slots (for ex, in OMR implementation there are <span class="math inline">$2^{15}$</span> slots), amortisation benefits immensely. We usually refer to this property of BFV as SIMD (ie single input multiple data).</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+a  \\
+b  \\
+c \\
+d \\
+e \\
+f \\
+\end{pmatrix}
+$$</div><p><strong>A BFV ciphertext with 8 SIMD slots</strong>
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+x_0  \\
+x_1  \\
+\vdots \\
+x_7 \\
+\end{pmatrix}
+\{&#43;, -,\times\}
+Enc\begin{pmatrix}
+y_0  \\
+y_1  \\
+\vdots \\
+y_7 \\
+\end{pmatrix} =
+Enc\begin{pmatrix}
+x_0\{&#43;, -,\times\}y_0 \mod t  \\
+x_1\{&#43;, -,\times\}y_1 \mod t \\
+\vdots \\
+x_7\{&#43;, -,\times\}y_7 \mod t \\
+\end{pmatrix}
+$$</div><p><strong>With plaintext prime modulus set to <span class="math inline">$t$</span>, homomorphic <span class="math inline">$\times, &#43;, -$</span> between two BFV ciphertext corresponds to operations modulo <span class="math inline">$t$</span> over values in slots.</strong>
+<br></p>
+<p>We can additionally rotate BFV ciphertext left or right. However, the rotation does not wrap around the entire length of vector, instead it wraps around halfway through the vector.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+a  \\
+b  \\
+c \\
+d \\
+-\\
+e \\
+f \\
+g \\
+h \\
+\end{pmatrix}
+\rightarrow
+Enc\begin{pmatrix}
+b  \\
+c  \\
+d \\
+a \\
+-\\
+f \\
+g \\
+h \\
+e \\
+\end{pmatrix}
+$$</div><p><strong>Rotating BFV ciphertext to the left by 1. For rotations, view BFV ciphertext equally split into upper vector and lower vector and rotations in the two vectors are independent.</strong>
+<br></p>
+<p><strong>Note:</strong> I know it makes more sense to call left rotation as up and right rotation as down. But in most cases the ciphertext vector is viewed as a matrix with two rows split halfway, where denoting rotations as left/right makes more sense.</p>
+<p>Moreover, we can swap upper vector and lower vector of a BFV ciphertext. We refer to this as row swap (because BFV ciphertext can be viewed as a matrix with two row vectors and swapping upper vector and lower vector corresponds to swapping matrix&rsquo;s row vectors).</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+a  \\
+b  \\
+c \\
+d \\
+-\\
+e \\
+f \\
+g \\
+h \\
+\end{pmatrix}
+\rightarrow
+Enc\begin{pmatrix}
+e \\
+f \\
+g \\
+h \\
+-\\
+a  \\
+b  \\
+c \\
+d \\
+\end{pmatrix}
+$$</div><br>
+<h2 id="decrypting-pvw-ciphertext-homomorphically-using-bfv">Decrypting PVW ciphertext homomorphically using BFV</h2>
+<p>Clues are encrypted as vector filled with 0s using receiver&rsquo;s corresponding PVW public key. Receiver can decrypt all clues themselves to find the clues intended for them. If a given clue decrypts to a vector with all 0s, then the clue is for them, otherwise not. However, the server does not has access to receiver&rsquo;s PVW secret key, due to which, we decrypt the clues homomorphically using BFV. In short we transcipher clues from PVW to BFV and switch clues from encryption under PVW scheme to encryption under BFV scheme. One thing to note here is that user is expected to have two diffferent secret keys, one for BFV and another for PVW. Moreover, for transciphering (as you will learn in a bit) user needs to encrypt their PVW secret key under BFV scheme using their BFV secret key and send it to server.</p>
+<h3 id="calculating-">Calculating <span class="math inline">$sk^T \cdot ct[1]$</span>:</h3>
+<p>Computing <span class="math inline">$sk^T \cdot ct[1]$</span> comprises of <span class="math inline">$l$</span> inner products between vectors of size <span class="math inline">$n$</span>. Since a user can&rsquo;t send their <span class="math inline">$sk_{PVW}$</span> to server in clear, they encrypt their row vectors of <span class="math inline">$sk^T_{PVW}$</span> as <span class="math inline">$l$</span> BFV ciphertexts and send the ciphertexts to server.</p>
+<div class="math display">$$
+sk^Tct[1] =
+\begin{pmatrix}
+&lt;sk^T[0], ct[1]&gt; \\
+&lt;sk^T[1], ct[1]&gt; \\
+\vdots \\
+&lt;sk^T[l-1], ct[1]&gt; \\
+\end{pmatrix} =
+\begin{pmatrix}
+sk_{0,0} &amp; sk_{0,1} &amp; \cdots &amp; \cdots &amp; sk_{0,n-1} \\
+sk_{1,0} &amp; sk_{1,1} &amp; \cdots &amp; \cdots &amp; sk_{1,n-1} \\
+\vdots \\
+sk_{l-1,0} &amp; sk_{l-1,1} &amp; \cdots &amp;  \cdots  &amp; sk_{l-1,n-1} \\
+\end{pmatrix}
+\begin{pmatrix}
+ct[1]_{0} \\
+ct[1]_{1} \\
+\vdots \\
+\vdots \\
+ct[1]_{n-1} \\
+\end{pmatrix}
+$$</div><p><strong>Calculating <span class="math inline">$sk^Tct[1]$</span> in clear. Notice <span class="math inline">$i^{th}$</span> row of resulting vector corresponds to inner product between <span class="math inline">$i^{th}$</span> row of <span class="math inline">$sk^T$</span> and <span class="math inline">$ct[1]$</span></strong></p>
+<p>Thus to calculate <span class="math inline">$sk^Tct[1]$</span> with encryptions of row vectors of <span class="math inline">$sk^T$</span> we need a way to homomorphically compute inner products between a secret vector <span class="math inline">$sk^T[i]$</span> and a clear vector <span class="math inline">$ct[1]$</span>. We can do this by encrypting the secret vector in slots of BFV ciphertext and encoding the clear vector in first slots of multiple BFV plaintexts. Then we can iteratively rotate BFV ciphertext to left by 1, multiply it with corresponding BFV plaintext and add to resulting ciphertext. After <span class="math inline">$n$</span> iterations (ie length of vectors), resulting ciphertext will contain inner product of secret vector and clear vector in the first slot.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+sk_{0,n-1} \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix}
+$$</div><p><strong>First row of <span class="math inline">$sk^T$</span> encrypted as BFV ciphertext in multiple slots.</strong>
+<br></p>
+<div class="math display">$$
+Plaintext\begin{pmatrix}
+ct[1]_0 &amp; ct^[1]_1 &amp; \cdots &amp; ct[1]_n \\
+0 &amp; 0 &amp; \cdots &amp; 0 \\
+\vdots \\
+0 &amp; 0 &amp; \cdots &amp; 0 \\
+0 &amp; 0 &amp; \cdots &amp; 0 \\
+\vdots \\
+0 &amp; 0 &amp; \cdots &amp; 0 \\
+\end{pmatrix}
+$$</div><p><strong>View each column as a separate BFV plaintext. Values of clear vector <span class="math inline">$ct[1]$</span> are encoded in first slot of different BFV plaintexts.</strong>
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0} ct[1]_0 \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix} = Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+0 \\
+\end{pmatrix}\times Plaintext\begin{pmatrix}
+ct[1]_0 \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix}
+$$</div><p><strong><span class="math inline">$0^{th}$</span> iteration</strong>
+<br></p>
+<div class="math display">$$
+Rotate(Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+0 \\
+\end{pmatrix}, 1) = Enc\begin{pmatrix}
+sk_{0,1} \\
+sk_{0,2} \\
+\vdots \\
+0 \\
+\end{pmatrix}
+$$</div><div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0} ct[1]_0 &#43; sk_{0,1} ct[1]_1 \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix}=Enc\begin{pmatrix}
+sk_{0,1} \\
+sk_{0,2} \\
+\vdots \\
+0 \\
+\end{pmatrix} \times
+Plaintext\begin{pmatrix}
+ct[1]_1 \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix}
+$$</div><p><strong>After every iteration we rotate secret vector ciphertext to the left by 1 and then multiply with next plaintext in sequence. For example, after <span class="math inline">$0^{th}$</span> iteration we rotate <span class="math inline">$sk$</span> and then multiply it with BFV plaintext encoding <span class="math inline">$ct[1]_1$</span> in its first slot.</strong>
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0} ct[1]_0 &#43; sk_{0,1} ct[1]_1 &#43; \cdots &#43; sk_{0,n-1}ct[1]_{n-1} \\
+0 \\
+\vdots \\
+0 \\
+\end{pmatrix}
+$$</div><p><strong>After <span class="math inline">$n^{th}$</span> iteration (n is length of vector) the resulting ciphertext will have encryption of inner sum in the first slot</strong>
+<br></p>
+<p>However, the approach above is quite wasteful. We only utilise a single BFV ciphertext for a single inner product. Instead we can utilise it for as many as <span class="math inline">$N$</span> (as many there are slots) inner products, allowing us to decrypt <span class="math inline">$N$</span> PVW ciphertexts at once. This fits well for us because it amortises cost of calculating <span class="math inline">$N$</span> inner products to 1 inner product. But to achieve this, we will have to modify the way we encrypt secret vector in BFV ciphertext slots and clear vector(s) in BFV plaintext a bit.</p>
+<p>Let&rsquo;s assume both BFV ciphertext slots count and <span class="math inline">$n$</span> is <span class="math inline">$2^9=512$</span> and rotations don&rsquo;t wrap around the middle of ciphertext, instead they wrap around as usual (<span class="math inline">$n$</span> can be any power of 2. I have taken <span class="math inline">$2^9$</span> to stay in line with OMR implementation). We encrypt secret rows of <span class="math inline">$sk^T$</span> as before in BFV ciphertexts. Denoting <span class="math inline">$ct[1]$</span> of <span class="math inline">$i^{th}$</span> PVW ciphertext as <span class="math inline">$ct^i[1]$</span>, we will create <span class="math inline">$2^9$</span> BFV plaintexts and view them as a matrix. We will first rotate <span class="math inline">$ct^i[1]$</span> by <span class="math inline">$i$</span> to the left and then encode it in <span class="math inline">$i^{th}$</span> row of BFV plaintext matrix.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+sk_{0,511} \\
+\end{pmatrix}
+$$</div><p><strong>Secret vector <span class="math inline">$sk^T[0]$</span> is encrypted in BFV ciphertext slots</strong>
+<br></p>
+<div class="math display">$$
+Plaintext\begin{pmatrix}
+ct^0[1]_0 &amp; ct^0[1]_1 &amp; \cdots &amp; ct^0[1]_{511} \\
+ct^1[1]_1 &amp; ct^1[1]_2 &amp; \cdots &amp; ct^1[1]_{0} \\
+\vdots \\
+ct^{511}[1]_{511} &amp; ct^{511}[1]_1 &amp; \cdots &amp; ct^{511}[1]_{510} \\
+\end{pmatrix}
+$$</div><p><strong>Viewing multiple BFV plaintexts as matrix, <span class="math inline">$ct^i[1]$</span> is rotated to left by <span class="math inline">$i$</span> and is encoded in <span class="math inline">$i^{th}$</span> row.</strong>
+<br></p>
+<p>Repeating the same procedure as before, we iteratively rotate secret vector ciphertext and multiply it with next BFV plaintext in sequence and accumulate the result in accumulator ciphertext. After 512 iterations the accumulator ciphertext will have inner product of secret vector and <span class="math inline">$ct^i[1]$</span> and <span class="math inline">$i^{th}$</span> slot.
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0}ct^0[1]_0 \\
+sk_{0,1}ct^1[1]_1 \\
+\vdots \\
+sk_{0,511}ct^{511}[1]_{511} \\
+\end{pmatrix} = Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+sk_{0,511} \\
+\end{pmatrix}
+\times
+Plaintext\begin{pmatrix}
+ct^0[1]_0 \\
+ct^1[1]_1 \\
+\vdots \\
+ct^{511}[1]_{511} \\
+\end{pmatrix}
+$$</div><p><strong>Accumulator ciphertext on the left, after <span class="math inline">$0^{th}$</span> iteration.</strong>
+<br></p>
+<div class="math display">$$
+Rotate(Enc\begin{pmatrix}
+sk_{0,0} \\
+sk_{0,1} \\
+\vdots \\
+sk_{0,511} \\
+\end{pmatrix}, 1) = Enc\begin{pmatrix}
+sk_{0,1} \\
+sk_{0,2} \\
+\vdots \\
+sk_{0,0} \\
+\end{pmatrix}
+$$</div><div class="math display">$$
+Enc\begin{pmatrix}
+sk_{0,0}ct^0[1]_0 &#43;  sk_{0,1}ct^0[1]_1\\
+sk_{0,1}ct^1[1]_1 &#43; sk_{0,2}ct^1[1]_2 \\
+\vdots \\
+sk_{0,511}ct^{511}[1]_{511} &#43; sk_{0,0}ct^{511}[1]_{0} \\
+\end{pmatrix} = Enc\begin{pmatrix}
+sk_{0,1} \\
+sk_{0,2} \\
+\vdots \\
+sk_{0,0} \\
+\end{pmatrix}
+\times
+Plaintext\begin{pmatrix}
+ct^0[1]_1 \\
+ct^1[1]_2 \\
+\vdots \\
+ct^{511}[1]_{0} \\
+\end{pmatrix}
+$$</div><p><strong>After <span class="math inline">$0^{th}$</span> iteration, we rotate BFV ciphertext of <span class="math inline">$sk^T[0]$</span> to left by 1 and multiply it with next BFV plaintext in sequence. Then we accumulate it again into accumulator ciphertext.</strong>
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+&lt;sk^T[0], ct^0[1]&gt; \\
+&lt;sk^T[0], ct^1[1]&gt; \\
+\vdots \\
+&lt;sk^T[0], ct^{511}[1]&gt; \\
+\end{pmatrix}
+$$</div><p><strong>After 512 iterations, accumulator ciphertext will have inner product of <span class="math inline">$sk^T[0]$</span> and <span class="math inline">$ct^i[1]$</span> in <span class="math inline">$i^{th}$</span> slot</strong></p>
+<p>But what if no. of BFV slots are greater than 512 and aren&rsquo;t equal to <span class="math inline">$n$</span>? For example, in implementation <span class="math inline">$N$</span> is <span class="math inline">$2^{15}$</span> and <span class="math inline">$n$</span> is only 450. Also, how do you deal with the fact the BFV rotations wrap around the mid point? Turns out, way to get around both issues is to assume that vector length is next power of 2 and pad the vectors with 0s. For example, for when <span class="math inline">$N=2^{15}$</span> and <span class="math inline">$n=450$</span>, we assume vector length is 512 and divide BFV slots in sets of consecutive 512 slots. Then we repeat the what we did for each set. After 512 iterations, the accumulator ciphertext will encrypt result of <span class="math inline">$N$</span> inner products.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+sk^T[0]{0} \\
+sk^T[0]{1} \\
+\vdots \\
+sk^T[0]{449} \\
+0 \\
+\vdots \\
+0 \\
+sk^T[0]{0} \\
+sk^T[0]{1} \\
+\vdots
+\end{pmatrix}
+$$</div><p><strong>We divide BFV ciphertext slots in sets of 512, then we pad <span class="math inline">$sk^T[0]$</span> with 0s such that its length is 512 and encrypt it such that padded <span class="math inline">$sk^T[0]$</span> vector is in each set.</strong>
+<br></p>
+<div class="math display">$$
+Plaintext\begin{pmatrix}
+ct^0[1]_0 &amp; ct^0[1]_1 &amp; \cdots &amp; 0 \\
+ct^1[1]_1 &amp; ct^1[1]_2 &amp; \cdots &amp; ct^1[1]_0 \\
+\vdots \\
+ct^{449}[1]_{449} &amp; 0 &amp; \cdots &amp; ct^{449}[1]_{448} \\
+0 &amp; 0 &amp; \cdots &amp; ct^{450}[1]_{449} \\
+\vdots \\
+0 &amp; ct^{511}[1]_0 &amp; \cdots &amp; 0 \\
+ct^{512}[1]_0 &amp; ct^{512}[1]_1 &amp; \cdots &amp; 0 \\
+ct^{513}[1]_1 &amp; ct^{513}[1]_2 &amp; \cdots &amp; ct^{513}[1]_0 \\
+\vdots \\
+\end{pmatrix}
+$$</div><p><strong>We pad all <span class="math inline">$ct[1]$</span>s with 0s to make their length equal to 512. We then divide the rows of BFV plaintext matrix in sets of 512. In each set we encode <span class="math inline">$i^{th}$</span> clear vector <span class="math inline">$ct^i[1]$</span> in <span class="math inline">$i^{th}$</span> row. With <span class="math inline">$N=2^{15}, n=450$</span> notice that a single set packs in 512 inner products and a single BFV ciphertext packs in <span class="math inline">$2^{15}$</span> inner products.</strong>
+<br>
+With <span class="math inline">$N=2^{15}$</span>, after 512 iterations accumulator ciphertexts will contain <span class="math inline">$2^{15}$</span> inner products in its slots.</p>
+<p>Like we have calculated inner product between encrypted <span class="math inline">$sk^T[0]$</span> and many <span class="math inline">$ct[1]$</span> vectors, we can calculate inner product between rest of encrypted rows of <span class="math inline">$sk^T$</span> and <span class="math inline">$ct[1]$</span> vectors. After which, we will obtain <span class="math inline">$l$</span> accumulator ciphertexts where accumulator ciphertext at index <span class="math inline">$j$</span> contains inner product between <span class="math inline">$sk^T[j]$</span> and <span class="math inline">$ct^i[1]$</span> in <span class="math inline">$i^{th}$</span> slot. Moreover, if we view <span class="math inline">$l$</span> accumulator ciphertexts as a matrix then <span class="math inline">$i^{th}$</span> row encrypts matrix vector product of <span class="math inline">$sk^Tct^i[1]$</span>.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+&lt;sk^T[0], ct^0[1]&gt; &amp; &lt;sk^T[1], ct^0[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^0[1]&gt; \\
+&lt;sk^T[0], ct^0[1]&gt; &amp; &lt;sk^T[1], ct^0[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^0[1]&gt;\\
+\vdots \\
+&lt;sk^T[0], ct^{N-1}[1]&gt; &amp; &lt;sk^T[1], ct^{N-1}[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^{N-1}[1]&gt;
+\end{pmatrix}
+$$</div><p><strong><span class="math inline">$l$</span> accumulator ciphertexts viewed as a matrix. Notice that <span class="math inline">$i^{th}$</span> row contains matrix vector product between <span class="math inline">$sk^Tct^i[1]$</span>.</strong>
+<br></p>
+<h3 id="calculating--1">Calculating <span class="math inline">$ct[0] - sk^Tct[1]$</span>:</h3>
+<p>Once we have <span class="math inline">$l$</span> accumulator ciphertexts, calculating <span class="math inline">$ct^i[0] - sk^Tct^i[1]$</span> is quite easy. We construct <span class="math inline">$l$</span> BFV plaintexts in which we encode <span class="math inline">$j^{th}$</span> element of <span class="math inline">$ct^i[0]$</span> in <span class="math inline">$i^{th}$</span> slot of <span class="math inline">$j^{th}$</span> plaintext. In other words, when we view multiple <span class="math inline">$l$</span> BFV plaintexts as a matrix we encode <span class="math inline">$ct^i[0]$</span> in <span class="math inline">$i^{th}$</span> row.
+<br></p>
+<div class="math display">$$
+Plaintext\begin{pmatrix}
+ct^0[0]_0 &amp; ct^0[0]_1 &amp; \cdots &amp; ct^0[0]_{l-1} \\
+ct^1[0]_0 &amp; ct^1[0]_1 &amp; \cdots &amp; ct^1[0]_{l-1} \\
+\vdots \\
+ct^{N-1}[0]_0 &amp; ct^{N-1}[0]_1 &amp; \cdots &amp; ct^{N-1}[0]_{l-1} \\
+\end{pmatrix}
+-Enc\begin{pmatrix}
+&lt;sk^T[0], ct^0[1]&gt; &amp; &lt;sk^T[1], ct^0[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^0[1]&gt; \\
+&lt;sk^T[0], ct^0[1]&gt; &amp; &lt;sk^T[1], ct^0[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^0[1]&gt;\\
+\vdots \\
+&lt;sk^T[0], ct^{N-1}[1]&gt; &amp; &lt;sk^T[1], ct^{N-1}[1]&gt; &amp; \cdots &amp; &lt;sk^T[l-1], ct^{N-1}[1]&gt;
+\end{pmatrix}
+$$</div><p><strong><span class="math inline">$i^{th}$</span> row of plaintext matrix encodes <span class="math inline">$ct^i[0]$</span>. Subtracting <span class="math inline">$l$</span> BFV ciphertext from <span class="math inline">$l$</span> BFV plaintexts results in <span class="math inline">$l$</span> ciphertexts that contains <span class="math inline">$ct^i[0] - sk^Tct^i[1]$</span> in <span class="math inline">$i^{th}$</span> row. That is, decrypted vector of <span class="math inline">$i^{th}$</span> PVW ciphertext in <span class="math inline">$i^{th}$</span> row.</strong>
+<br></p>
+<h3 id="range-function-">Range function <span class="math inline">$f_r(x)$</span>:</h3>
+<p>After calculating <span class="math inline">$ct[0] - sk^Tct[1]$</span> homomorphically we end up with <span class="math inline">$l$</span> ciphertexts where <span class="math inline">$i^{th}$</span> row encrypts <span class="math inline">$ct^i[0] - sk^T ct^i[1]$</span> of <span class="math inline">$i^{th}$</span> PVW ciphertext. To finish PVW decryption procedure we need to map each element in ciphertexts to 1 or 0 using range function <span class="math inline">$f_r(x)$</span>. However, due to the fact that in BFV we only have access to homomorphic additions, subtractions, and multiplications over some prime modulus <span class="math inline">$t$</span>, performing comparisons is not trivial and requires evaluating a polynomial. A way to evaluate any arbitrary function over a value modulus prime <span class="math inline">$t$</span> is described in section 3 (Equation 1) of <a href="https://eprint.iacr.org/2021/1335.pdf">this</a>
+ paper. Since homomorphic operations over BFV ciphertext correspond to operations over values in its slots modulo prime <span class="math inline">$t$</span>, we can simply evaluate the function described in the paper over our ciphertexts.</p>
+<p>For any <span class="math inline">$f: \mathbb{F}_t \rightarrow \mathbb{F}_t$</span></p>
+<div class="math display">$$P_f(X) = f(0) - \sum_i^{t-1} X^i \sum_{a=0}^{t-1} f(a)a^{a-t-1}$$</div><p><strong>Any arbitrary function <span class="math inline">$f$</span> with <span class="math inline">$X \in [0,t)$</span> can be evaluated using <span class="math inline">$P_f(X)$</span>.</strong>
+<br>
+<strong>Note:</strong> <span class="math inline">$P_f(X)$</span> is simply derived from following equality function over a field which uses fermat&rsquo;s little theorem:</p>
+<div class="math display">$$
+EQ(f, x)=1-(x-y)^{t-1}= \begin{cases}
+1  &amp; \text{if } x = y \\
+0  &amp; \text{otherwise} \end{cases}
+$$</div><br>
+<p>If we simplify <span class="math inline">$P_f(X)$</span>, we can re-write it as a polynomial of degree <span class="math inline">$t-1$</span>. But notice that if <span class="math inline">$t$</span> is big (in OMR <span class="math inline">$t$</span> is set to 65537 since PVW parameter <span class="math inline">$q$</span> is set to 65537) then evaluating the polynomial naively may require many ciphertext by ciphertext multiplications, resulting in very inefficient implementation. This is where Paterson Stockmeyer method of polynomial evaluation comes handy. Paterson Stockmeyer method is an easy way to evaluate polynomial with reduced no. of multiplications. For example, evaluating a polynomial of degree 65536 (ie <span class="math inline">$t$</span> = 65537) on encrypted input <span class="math inline">$x$</span> using Paterson Stockmeyer method takes 765 ciphertext multiplications.</p>
+<h4 id="peterson-stockmeyer">Peterson stockmeyer</h4>
+<p>Let&rsquo;s set <span class="math inline">$t$</span> = 65537. Thus we have to evaluate a polynomial of degree 65536. Now notice the following equality:
+</p>
+<div class="math display">$$a_0 &#43; a_1x &#43; a_2x^2 &#43; ... &#43; a_{65536}x^{65536}$$</div><div class="math display">$$
+\begin{multline}
+ \\ = a_0 \\ &#43; a_1x &#43; a_2x^2 &#43; ... &#43; a_{256}x^{256}\\
+ &#43;a^{256} (a_1x &#43; a_2x^2 &#43; ... &#43; a_{256}x^{256}) \\
+ &#43;(a^{256})^2 (a_1x &#43; a_2x^2 &#43; ... &#43; a_{256}x^{256}) \\
+ ...\\
+ ...\\
+ &#43;(a^{256})^{255} (a_1x &#43; a_2x^2 &#43; ... &#43; a_{256}x^{256}) \\
+\end{multline}
+$$</div><p><strong>Using the equality we only require two different set of powers, first <span class="math inline">$x, x^2, x^3, ..., x^{256}$</span> and second <span class="math inline">$x^{256}, (x^{256})^2, ..., (x^{256})^{255}$</span>. Once we have the two sets ready we can use additions and additional 255 multiplications to evaluate entire polynomial.</strong>
+<br></p>
+<p><strong>Calculating first set of powers:</strong>
+The simplest way to calculate <span class="math inline">$x, ..., x^{256}$</span> is binary exponentiation:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-rust" data-lang="rust"><span class="line"><span class="cl"><span class="kd">let</span><span class="w"> </span><span class="n">powers_x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="mi">2</span><span class="o">..</span><span class="p">.</span><span class="mi">256</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">let</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">let</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">let</span><span class="w"> </span><span class="n">base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">while</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="k">if</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">			</span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">base</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">value</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">base</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="n">powers_x</span><span class="p">.</span><span class="n">push</span><span class="p">(</span><span class="n">res</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p>This requires 255 multiplications and if 255 seems non-intuitive then viewing binary exponentiation following way might help:</p>
+<p>Write powers of 2 in range <span class="math inline">$[4,128]$</span> in binary
+4 =&gt; 100
+8 =&gt; 1000
+16 =&gt; 10000
+32 =&gt; 100000
+64 =&gt; 1000000
+128 =&gt; 10000000</p>
+<p>Now notice that any value between any 2 powers of 2 can be calculated as multiplication of the previous power of 2 and a value smaller than the previous power of 2. Thus to calculate powers <span class="math inline">$x^2,...,x^{256}$</span> we will require 255 multiplications, one for each value in range <span class="math inline">$[2, 256]$</span>.</p>
+<div class="math display">$$
+\begin{multline}\\
+x^{70} = x^{64} x^{6}  \\
+\\
+	(64)_2 = 100000 \\
+	&#43;(6)_2 = 110 \\
+	(70)_2 = 100110 \\
+\end{multline}
+$$</div><p><strong>The highest power of 2 that is less than 70 is 64 and 70 can be written as sum of 64 + 6. Thus <span class="math inline">$x^{70}=x^{64}x^6$</span>.</strong></p>
+<p>Viewing binary exponentiation through this lens also hints something about noise growth. Since noise in resulting ciphertext depends on maximum of noise of the two input ciphertexts, our resulting noise is defined by noise of base power ciphertexts. As the highest base power we need is 128 our maximum noise growth will be equivalent of <span class="math inline">$log_2(128) &#43; 1$</span> (ie 8) multiplications.</p>
+<p>To calculate the second set of powers <span class="math inline">$x^{256}...(x^{256})^{255}$</span>, we set <span class="math inline">$x = x^{256}$</span> and calculate the powers the same way as in first set.</p>
+<p>Once we have both set of powers (ie <span class="math inline">$x, ..., x^{256}$</span> and <span class="math inline">$x^{256}, ..., (x^{256})^{255}$</span>), we can evaluate the polynomial corresponding to range function <span class="math inline">$f_r(x)$</span> using the right hand side of equality defined above. After evaluating <span class="math inline">$f_r(x)$</span> homomorphically on all <span class="math inline">$l$</span> ciphertexts each element in the slot of all ciphertexts must either encrypt 1 or 0. Viewing <span class="math inline">$l$</span> ciphertexts as matrix, <span class="math inline">$i^{th}$</span> row corresponds to decryption of <span class="math inline">$i^{th}$</span> clue. Since a clue is intended for user only when all elements in decrypted vector are 1s, we can multiply <span class="math inline">$l$</span> ciphertexts together to get a single decrypted ciphertext which encrypts 1 in <span class="math inline">$i^{th}$</span> slot if <span class="math inline">$i^{th}$</span> clue is intended for user, otherwise 0.</p>
+<h2 id="packing-pertinency-bits">Packing Pertinency Bits!</h2>
+<p>A single BFV ciphertext slot can encode a plaintext values in range <span class="math inline">$[0,t)$</span>. Thus a single slot can contain as many as <span class="math inline">$\log{t}$</span> bits. So simply sending decrypted ciphertext containing a single bit in each slot back to user is quite wasteful. Which is why we are going to pack as many as <span class="math inline">$\log t$</span> bits within a single slot and then send it back to user. For this we will have to first isolate encrypted pertinency bit in each slot into its own individual ciphertext which encrypts the same pertinency bit in all slots. Let&rsquo;s call these ciphertexts as pertinency ciphertexts.</p>
+<h4 id="unpacking-pertinency-bits-into-pertinency-ciphertexts">Unpacking pertinency bits into pertinency ciphertexts</h4>
+<p>To isolate pertinency bit at <span class="math inline">$i^{th}$</span> index in decrypted ciphertext, we simply multiply it with a plaintext with all slots set to 0, except the <span class="math inline">$i^{th}$</span> slot which is set to 1.</p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+0  \\
+0  \\
+\vdots \\
+i^{th} \space bit  \\
+\vdots \\
+\end{pmatrix} =
+Enc\begin{pmatrix}
+0  \\
+1  \\
+\vdots \\
+i^{th} \space bit  \\
+\vdots \\
+\end{pmatrix}
+\times
+Plaintext
+\begin{pmatrix}
+0  \\
+0  \\
+\vdots \\
+1\\
+\vdots \\
+\end{pmatrix}
+$$</div><p><strong>Multiplying decrypted ciphertext encrypting all pertinency bits with plaintext that encodes 1 only at <span class="math inline">$i^{th}$</span> slot results in pertinency ciphertext encrypting <span class="math inline">$i^{th}$</span> pertinency bit at <span class="math inline">$i^{th}$</span> slot.</strong>
+<br></p>
+<h4 id="inner-sum-of-vectors">Inner sum of vectors</h4>
+<p>To populate all the slots of a pertinency ciphertext that encrypts <span class="math inline">$i^{th}$</span> bit at <span class="math inline">$i^{th}$</span> slot with <span class="math inline">$i^{th}$</span> bit in all slots we will use inner sum of vectors. Inner sum simply sums elements in all the slots and sets the summation as value of each slot.</p>
+<div class="math display">$$
+\text{InnerSum}(\text{Enc}\begin{pmatrix}
+a \\
+b \\
+c \\
+d \\
+e \\
+f \\
+g \\
+h \\
+\end{pmatrix}) =
+\text{Enc}\begin{pmatrix}
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+\end{pmatrix}
+$$</div><p><strong>Evaluating InnerSum over encrypted ciphertext results in a ciphertext encrypting summation of values of all slots of input ciphertext in each slot.</strong>
+<br></p>
+<p>For an intuitive understanding of how inner sum works, consider a BFV ciphertext with 8 slots.</p>
+<div class="math display">$$
+\text{Enc}\begin{pmatrix}
+a \\
+b \\
+c \\
+d \\
+e \\
+f \\
+g \\
+h \\
+\end{pmatrix} &#43; (Rotate(\text{Enc}\begin{pmatrix}
+a \\
+b \\
+c \\
+d \\
+e \\
+f \\
+g \\
+h \\
+\end{pmatrix}, 1) = \text{Enc}\begin{pmatrix}
+b \\
+c \\
+d \\
+a \\
+f \\
+g \\
+h \\
+e \\
+\end{pmatrix}) =
+\text{Enc}\begin{pmatrix}
+a &#43; b \\
+b &#43; c \\
+c &#43; d\\
+d &#43; a\\
+e &#43; f\\
+f &#43; g\\
+g &#43; h\\
+h &#43; e\\
+\end{pmatrix}
+$$</div><p><strong>Starting with BFV ciphertext with 8 slots on left, we rotate it left by 1 and add it by itself.</strong>
+<br></p>
+<div class="math display">$$
+\text{Enc}\begin{pmatrix}
+a &#43; b \\
+b &#43; c \\
+c &#43; d\\
+d &#43; a\\
+e &#43; f\\
+f &#43; g\\
+g &#43; h\\
+h &#43; e\\
+\end{pmatrix} &#43;
+(
+\text{Rotate}(\text{Enc}\begin{pmatrix}
+a &#43; b \\
+b &#43; c \\
+c &#43; d\\
+d &#43; a\\
+e &#43; f\\
+f &#43; g\\
+g &#43; h\\
+h &#43; e\\
+\end{pmatrix},2) =
+\text{Enc}\begin{pmatrix}
+c &#43; d \\
+d &#43; a \\
+a &#43; b\\
+b &#43; c \\
+g &#43; h\\
+h &#43; e\\
+e &#43; f\\
+f &#43; g\\
+\end{pmatrix}
+) =
+\text{Enc}\begin{pmatrix}
+a &#43; b &#43;  c &#43; d\\
+b &#43; c &#43; d &#43; a \\
+c &#43; d &#43; a &#43; b\\
+d &#43; a &#43; b &#43; c\\
+e &#43; f &#43; g &#43; h\\
+f &#43; g &#43; h &#43; e\\
+g &#43; h &#43; e &#43; f\\
+h &#43; e &#43; f &#43; g \\
+\end{pmatrix}
+$$</div><p><strong>We rotate the ciphertext in previous step by 2 to the left and add it to itself. Notice that we end up with ciphertext that encrypts summation of upper half slots of initial ciphertext in each of upper half slots and encrypts summation of lower half slots of initial ciphertext in each of lower half. We are now just left with to add upper half to lower half</strong>
+<br></p>
+<div class="math display">$$
+\text{Enc}\begin{pmatrix}
+a &#43; b &#43;  c &#43; d\\
+b &#43; c &#43; d &#43; a \\
+c &#43; d &#43; a &#43; b\\
+d &#43; a &#43; b &#43; c\\
+------ \\
+e &#43; f &#43; g &#43; h\\
+f &#43; g &#43; h &#43; e\\
+g &#43; h &#43; e &#43; f\\
+h &#43; e &#43; f &#43; g \\
+\end{pmatrix} \text{&#43;} \text{RowSwap(}\text{Enc(}\begin{pmatrix}
+a &#43; b &#43;  c &#43; d\\
+b &#43; c &#43; d &#43; a \\
+c &#43; d &#43; a &#43; b\\
+d &#43; a &#43; b &#43; c\\
+------ \\
+e &#43; f &#43; g &#43; h\\
+f &#43; g &#43; h &#43; e\\
+g &#43; h &#43; e &#43; f\\
+h &#43; e &#43; f &#43; g \\
+\end{pmatrix}\text{)) =}
+\text{Enc(}\begin{pmatrix}
+e &#43; f &#43; g &#43; h\\
+f &#43; g &#43; h &#43; e\\
+g &#43; h &#43; e &#43; f\\
+h &#43; e &#43; f &#43; g \\
+------ \\
+a &#43; b &#43;  c &#43; d\\
+b &#43; c &#43; d &#43; a \\
+c &#43; d &#43; a &#43; b\\
+d &#43; a &#43; b &#43; c\\
+\end{pmatrix}\text{)} = \text{Enc(}\begin{pmatrix}
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+a &#43; b &#43; c &#43; d &#43; e &#43; f &#43; g &#43; h \\
+\end{pmatrix}\text{)}
+$$</div><p><strong>Finally we RowSwap (ie swap upper and lower half) ciphertext from previous step and add it to itself</strong>
+<br></p>
+<p>More generally, evaluating inner sum of a BFV ciphertext requires to <span class="math inline">$\log N - 1$</span> rotations, 1 row swap, and <span class="math inline">$\log N$</span> additions.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-rust" data-lang="rust"><span class="line"><span class="cl"><span class="c1">// ct: BFV ciphertext
+</span></span></span><span class="line"><span class="cl"><span class="c1">// N: no. of slots in BFV ciphertext
+</span></span></span><span class="line"><span class="cl"><span class="k">fn</span> <span class="nf">inner_sum</span><span class="p">(</span><span class="n">ct</span><span class="p">,</span><span class="w"> </span><span class="n">N</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">let</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">while</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">N</span><span class="o">/</span><span class="mi">2</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">ct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ct</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">rotate</span><span class="p">(</span><span class="n">ct</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">i</span><span class="w"> </span><span class="o">*=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="n">ct</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ct</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">row_swap</span><span class="p">(</span><span class="n">ct</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><p><strong>Inner sum function. <code>rotate</code> rotates the BFV ciphertext to left by i and <code>row_swap</code> swaps the rows (ie swaps upper half and lower half of BFV ciphertext)</strong>
+<br></p>
+<p>After unpacking each slot in decrypted ciphertext as pertinency ciphertext, we calculate inner sum of each pertinency ciphertext. Thus each pertinency ciphertext either encrypts 1s or 0s in all slots.</p>
+<h3 id="packing-the-bits">Packing the bits</h3>
+<p>An easy way to figure out how to pack bits in a BFV ciphertext with <span class="math inline">$N$</span> slots, is to think of the ciphertext as <span class="math inline">$N$</span> rows with each row having <span class="math inline">$\log t$</span> columns.
+<br></p>
+<div class="math display">$$
+\text{Enc}(\begin{pmatrix}
+b_{0,\log t - 1} &amp; \cdots &amp; b_{0,1} &amp; b_{0,0} \\
+b_{1,\log t - 1} &amp; \cdots &amp; b_{1,1} &amp; b_{1,0} \\
+\vdots \\
+b_{N-1,\log t - 1} &amp; \cdots &amp; b_{N-1,\log t - 1} &amp; b_{N-1,\log t - 1} \\
+\end{pmatrix})
+$$</div><p><strong>BFV ciphertext viewed as a matrix of bits. It has <span class="math inline">$N$</span> rows and <span class="math inline">$\log t$</span> columns.</strong>
+<br></p>
+<p>To understand how to pack the bits in the matrix, let&rsquo;s take an example. We will set <span class="math inline">$N=2^{15}$</span> and <span class="math inline">$t=2^{16}&#43;1$</span>, thus <span class="math inline">$\log t = 16$</span> (these are the parameters used in OMR implementation).</p>
+<p>We insert pertinency bit of <span class="math inline">$i^{th}$</span> message at position <span class="math inline">$b_{i/16, i\mod 16}$</span>. For example, pertinency bit corresponding to <span class="math inline">$0^{th}$</span> message can be inserted at position <span class="math inline">$b_{0,0}$</span> and bit corresponding to <span class="math inline">$18^{th}$</span> message can be inserted at position <span class="math inline">$b_{1,2}$</span>.</p>
+<p>To insert a bit at position <span class="math inline">$b_{x,y}$</span>, we simply need to scale the bit such that bit is at position <span class="math inline">$y$</span> and insert it in <span class="math inline">$x^{th}$</span> slot. Since bit&rsquo;s pertinency ciphertext encrypts the bit at all slots, we simply need to multiply it by a plaintext that encodes <span class="math inline">$2^{y}$</span> at <span class="math inline">$x^{th}$</span> and add it to packed ciphertext.
+<br></p>
+<div class="math display">$$
+Enc\begin{pmatrix}
+0000101000001000 \\
+0000000000000\textit{1}00\\
+\vdots \\
+0000000000000000 \\
+\end{pmatrix} =
+Enc\begin{pmatrix}
+0000101000001000 \\
+0000000000000\textit{0}00\\
+\vdots \\
+0000000000000000 \\
+\end{pmatrix} &#43;
+(Enc\begin{pmatrix}
+1 \\
+\textit{1}\\
+\vdots \\
+1\\
+\end{pmatrix}
+\times
+Plaintext\begin{pmatrix}
+0000000000000000 \\
+0000000000000\textit{1}00 = 2^{2} \\
+\vdots \\
+0000000000000000 \\
+\end{pmatrix})
+$$</div><p><strong>Leftmost ciphertext is packed pertinency ciphertext after inserting <span class="math inline">$18^{th}$</span> pertinency bit. To add pertinency bit corresponding to <span class="math inline">$18^{th}$</span> message to packed pertinency ciphertext, encode <span class="math inline">$2^{2}$</span> at slot index 1 in BFV plaintext, multiply plaintext with <span class="math inline">$18^{th}$</span> pertinency ciphertext and add it to packed pertinency ciphertext.</strong>
+<br></p>
+<p>Another crucial point to note is that packing enables us to pack as many as <span class="math inline">$N(\log t)$</span> pertinency bits in a single BFV ciphertext. For example, in OMR implementation we can pack upto <span class="math inline">$2^{19}$</span> pertinency bits in single BFV ciphertext.</p>
+<p>Once we are done packing all pertinency ciphertexts into a single packed pertinency ciphertext we can send over the packed pertinency ciphertext to user. User can then decrypt the received ciphertext to find indices of message pertinent to them. However, we are yet to send messages back to user without requiring any additional interaction.
+<br></p>
+<h3 id="linear-equations-for-messages">Linear equations for messages</h3>
+<p>To understand how to send messages corresponding to pertinent clues back to user, it will be helpful to assume that a message fits within plaintext space of a slot (message is in range <span class="math inline">$[0,t)$</span>). Moreover, considering the fact that only a limited no. of messages will be pertinent to a given user, we can ask the user to fix maximum ceiling <span class="math inline">$k$</span> on no. of messages they may receive within a given time frame.</p>
+<h4 id="full-rank-matrices">Full rank matrices</h4>
+<p>Consider a square matrix <span class="math inline">$M \in F_q^{b \times b}$</span> with each element uniformly sampled from finite field defined by prime <span class="math inline">$q$</span>. Additionally, think of the matrix consisting of system of linear combinations with <span class="math inline">$b$</span> variables where each row represents a single linear combination. The matrix is called full rank if we can recover all <span class="math inline">$b$</span> variables by solving the linear combinations. Values of the variables can be recovered by reducing the matrix to row-echelon form using gaussian elimination.</p>
+<div class="math display">$$
+M = \begin{pmatrix}
+w_{0,0}x_{0} &amp; w_{0,1}x_{1} &amp; \cdots &amp; w_{0,b-1}x_{b-1} \\
+w_{1,0}x_{0} &amp; w_{1,1}x_{1} &amp; \cdots &amp; w_{1,b-1}x_{b-1} \\
+\vdots \\
+w_{b-1,0}x_{0} &amp; w_{b-1,1}x_{1} &amp; \cdots &amp; w_{b-1,b-1}x_{b-1} \\
+\end{pmatrix}
+$$</div><p><strong><span class="math inline">$M$</span> is full rank matrix with weights <span class="math inline">$w_{0,0}, ..., w_{b-1,b-1}$</span> sampled uniformly random from <span class="math inline">$F_q$</span> with variables <span class="math inline">$x_0, ..., x_{b-1}$</span> also <span class="math inline">$\in F_q$</span>.</strong>
+<br></p>
+<div class="math display">$$
+\begin{multline}\\
+	w_{0,0}x_0 &#43; w_{0,1}x_1 &#43; ... &#43; w_{0,b-1}x_{b-1} = t_0 \\
+	w_{1,0}x_0 &#43; w_{1,1}x_1 &#43; ... &#43; w_{1,b-1}x_{b-1} = t_1 \\
+	\vdots\\
+	w_{m,0}x_0 &#43; w_{m,1}x_1 &#43; ... &#43; w_{m, b-1}x_{b-1} = t_{m} \\
+\end{multline}
+$$</div><p><strong>Given <span class="math inline">$t_0, ..., t_{b-1}$</span> (ie result of linear combination of each row) we can recover variables <span class="math inline">$x_0, ..., x_{b-1}$</span> be reducing <span class="math inline">$M$</span> to row echelon form using gaussian elimination.</strong>
+<br></p>
+<p>In general, for matrix to be full rank its dimension should be at-least <span class="math inline">$b \times b$</span> for <span class="math inline">$b$</span> variables. However, there are <a href="https://arxiv.org/abs/1404.3250">results</a>
+ that show that when working on a finite field and assuming that only <span class="math inline">$k$</span> variables are pre-determined to be non-zero we can potentially reduce the no. of linear combinations, ie rows of <span class="math inline">$M$</span>, to a value closer to count of <span class="math inline">$k$</span> while assuring that matrix is full rank (with high probability). This implies that if we have linear combinations as:</p>
+<div class="math display">$$
+\begin{multline}\\
+	w_{0,0}\cdot 0 &#43; w_{0,1}\cdot 0 &#43; ... &#43; w_{0,S-1}x_{S-1} = t_0 \\
+	w_{1,0}\cdot 0 &#43; w_{1,1}\cdot 0 &#43; ... &#43; w_{1,S-1}x_{S-1} = t_1 \\
+	\vdots\\
+	w_{m,0}\cdot 0 &#43; w_{m,1}\cdot 0 &#43; ... &#43; w_{m, S-1}x_{S-1} = t_{m} \\
+\end{multline}
+$$</div><p><strong>where many of the variables can be pre-determined to be 0, then we can recover non-zero <span class="math inline">$k$</span> variables with <span class="math inline">$m$</span> linear combinations (instead of <span class="math inline">$S$</span>) where <span class="math inline">$m$</span> is closer to but greater than <span class="math inline">$k$</span></strong>.
+<br></p>
+<div class="math display">$$
+\begin{pmatrix}
+0 &amp; 0 &amp; \cdots &amp; w_{0,S-1}x_{S-1} &amp;|&amp; t_0\\
+0 &amp; 0 &amp; \cdots &amp; w_{1,S-1}x_{S-1} &amp;|&amp; t_1\\
+\vdots \\
+0 &amp; 0 &amp; \cdots &amp; w_{m-1,S-1}x_{S-1} &amp;|&amp; t_{m-1} \\
+\end{pmatrix} = \begin{pmatrix}
+w_{0,0} &amp; w_{0,1} &amp; \cdots &amp; w_{0,S-1} \\
+w_{1,0} &amp; w_{1,1} &amp; \cdots &amp; w_{1,S-1} \\
+\vdots \\
+w_{m-1,0} &amp; w_{m-1,1} &amp; \cdots &amp; w_{m-1,S-1} \\
+\end{pmatrix}
+\times
+\begin{pmatrix}
+x_{0} &amp; x_{1} &amp; \cdots &amp; x_{S-1} \\
+x_{0} &amp; x_{1} &amp; \cdots &amp; x_{S-1} \\
+\vdots \\
+x_{0} &amp; x_{1} &amp; \cdots &amp; x_{S-1} \\
+\end{pmatrix}
+\times
+\begin{pmatrix}
+0 &amp; 0 &amp; \cdots &amp; 1 \\
+0 &amp; 0 &amp; \cdots &amp; 1 \\
+\vdots \\
+0 &amp; 0 &amp; \cdots &amp; 1 \\
+\end{pmatrix}
+$$</div><p>Consider the equation above and assume that the entire set of messages is of size <span class="math inline">$S$</span>. Each element in weight matrix, <span class="math inline">$w_{0,0}, ..., w_{m-1, S-1}$</span> is sampled uniformly from <span class="math inline">$F_q$</span>. Each row in message matrix is same and is equal to all messages <span class="math inline">$x_0, ..., x_{S-1}$</span>. Each row in pertinency matrix is same and sets <span class="math inline">$i^{th}$</span> pertinency bit at <span class="math inline">$i^{th}$</span> column. Element wise multiplication of weight matrix, message matrix, and pertinency matrix will result in a matrix that has only <span class="math inline">$k$</span> (assuming only <span class="math inline">$k$</span> messages are pertinent) variables that are non-zero, thus the matrix will be full rank (with high probability). Moreover, someone with access to weight matrix, pertinency matrix, and linear combinations of each row of the resulting matrix (ie <span class="math inline">$t_0,...,t_{m-1}$</span>) can solve for <span class="math inline">$x$</span> values corresponding to non-zero pertinency bits of message matrix using gaussian elimination.</p>
+<p>Now, instead of randomly generating weight matrix, we can first seed a pseudo random generator with a seed and then generate the weight matrix. We can then send seed along with packed pertinency ciphertext back to user, so that they can generate weight matrix and pertinency matrix themselves. To send linear combinations of each row in resulting matrix to user, we will have to compute the linear combinations homomorphically because pertinency matrix is encrypted.</p>
+<h3 id="computing-linear-combinations-homomorphically">Computing linear combinations homomorphically</h3>
+<p>Calculating linear combinations homomorphically is trivial if we encode each column in weight matrix and message matrix as separate BFV plaintexts and then multiply them with corresponding pertinency ciphertext. Then add all the results.
+<br></p>
+<div class="math display">$$
+\text{Enc}\begin{pmatrix}
+w_{0,0}x_0pb_0 &#43; \cdots &#43;  w_{0,S-1}x_{s-1}pb_{S-1} \\
+w_{1,0}x_0pb_0 &#43; \cdots &#43;  w_{1,S-1}x_{s-1}pb_{S-1} \\
+\vdots \\
+w_{m-1,0}x_0pb_0 &#43; \cdots &#43;  w_{m-1,S-1}x_{s-1}pb_{S-1} \\
+\end{pmatrix} =
+\text{Plaintext}
+\begin{pmatrix}
+w_{0,0} x_0 \\
+w_{1,0} x_0 \\
+\vdots \\
+w_{m-1,0} x_0 \\
+\end{pmatrix}
+\times
+Enc\begin{pmatrix}
+pb_0 \\
+pb_0 \\
+\vdots \\
+pb_0 \\
+\end{pmatrix} &#43; \cdots &#43;
+Plaintext\begin{pmatrix}
+w_{0,S-1} x_{S-1} \\
+w_{1,S-1} x_{S-1} \\
+\vdots \\
+w_{m-1,S-1} x_{S-1} \\
+\end{pmatrix}
+\times
+Enc\begin{pmatrix}
+pb_{S-1} \\
+pb_{S-1} \\
+\vdots \\
+pb_{S-1} \\
+\end{pmatrix}
+$$</div><p><strong>We first multiply elements of weight matrix and message matrix and encode each column of resulting matrix in BFV plaintext. Then we multiply each BFV plaintext with corresponding pertinency ciphertext and add all of them up. We end up with linear combinations <span class="math inline">$t_0,..., t_m$</span> in slots of resulting BFV ciphertext on left.</strong>
+<br></p>
+<p>After computing linear combinations homomorphically, we send the resulting ciphertext (the one on left above), seed for weight matrix, and packed pertinency ciphertext to user. User can then decrypt the ciphertexts, construct linear equations and solve for them using gaussian elimination. However, if there happen to be more than <span class="math inline">$k$</span> message pertinent to user, equations will be unsolvable.</p>
+<p>For implementation to be useful, it is important to set ceiling <span class="math inline">$k$</span> appropriately. For example, in OMR implementation we have set <span class="math inline">$k$</span> to 50 and <span class="math inline">$m$</span> to 51, which results in probability of not having a full rank matrix (ie unsolvable linear equations for <span class="math inline">$x$</span>) even with <span class="math inline">$\leq k$</span> non-zero pertinent messages of approximately <span class="math inline">$2^{-50}$</span>.</p>
+<h3 id="larger-message-size">Larger message size</h3>
+<p>Up till now we assumed that a single message fits a single BFV plaintext slot, but in most practical applications it won&rsquo;t. To accommodate larger messages, we can split the large message into chunks that can fit in a single plaintext slot and construct multiple sets of <span class="math inline">$m$</span> linear combinations, one for each chunk. So if a single message fits in <span class="math inline">$a$</span> slots (message splits into <span class="math inline">$a$</span> chunks), we will construct <span class="math inline">$a$</span> different sets each consisting of <span class="math inline">$m$</span> linear combinations.</p>
+<img src="./images/omr_image1.png"/>
+<p><strong>If a message is of size 32 bits and a plaintext slot can fit in 16 bits (<span class="math inline">$t = 65537, \log t = 16$</span>), then we split message into two chunks each of size 16 bits. <span class="math inline">$x_0$</span> is split into <span class="math inline">$x_{0,0}$</span> and <span class="math inline">$x_{0,1}$</span>.</strong>
+<br></p>
+<div class="math display">$$
+\text{Enc}\begin{pmatrix}
+w_{0,0}x_{0,0}pb_0 &#43; \cdots &#43;  w_{0,S-1}x_{s-1,0}pb_{S-1} \\
+w_{0,0}x_{0,1}pb_0 &#43; \cdots &#43;  w_{0,S-1}x_{s-1,1}pb_{S-1} \\
+w_{1,0}x_{0,0}pb_0 &#43; \cdots &#43;  w_{1,S-1}x_{s-1,0}pb_{S-1} \\
+w_{1,0}x_{0,1}pb_0 &#43; \cdots &#43;  w_{1,S-1}x_{s-1,1}pb_{S-1} \\
+\vdots \\
+w_{m-1,0}x_{0,0}pb_0 &#43; \cdots &#43;  w_{m-1,S-1}x_{s-1,0}pb_{S-1} \\
+w_{m-1,0}x_{0,1}pb_0 &#43; \cdots &#43;  w_{m-1,S-1}x_{s-1,1}pb_{S-1} \\
+\end{pmatrix} =
+\text{Plaintext}
+\begin{pmatrix}
+w_{0,0} x_{0,0} \\
+w_{0,0} x_{0,1} \\
+w_{1,0} x_{0,0} \\
+w_{1,0} x_{0,1} \\
+\vdots \\
+w_{m-1,0} x_0 \\
+w_{m-1,0} x_1 \\
+\end{pmatrix}
+\times
+Enc\begin{pmatrix}
+pb_0 \\
+pb_0 \\
+pb_0 \\
+pb_0 \\
+\vdots \\
+pb_0 \\
+pb_0 \\
+\end{pmatrix} &#43;
+\cdots &#43;
+Plaintext\begin{pmatrix}
+w_{0,S-1} x_{S-1,0} \\
+w_{0,S-1} x_{S-1,1} \\
+w_{1,S-1} x_{S-1,0} \\
+w_{1,S-1} x_{S-1,1} \\
+\vdots \\
+w_{m-1,S-1} x_{S-1,0} \\
+w_{m-1,S-1} x_{S-1,1} \\
+\end{pmatrix}
+\times
+Enc\begin{pmatrix}
+pb_{S-1} \\
+pb_{S-1} \\
+pb_{S-1} \\
+pb_{S-1} \\
+\vdots \\
+pb_{S-1} \\
+pb_{S-1} \\
+\end{pmatrix}
+$$</div><p><strong>A single message <span class="math inline">$x_i$</span> is split into 2 chunks <span class="math inline">$x_{i,0}$</span> and <span class="math inline">$x_{i,1}$</span>, thus we construct 2 sets of linear combinations homomorphically. Notice that I have re-used weights across linear combinations for different chunks. It&rsquo;s ok to do so since linear combinations for chunks belong to different sets</strong></p>
+<br>
+<p>Note: paper improves upon having to insert each weight and message combination to all <span class="math inline">$m$</span> linear combinations using sparse random linear combinations with which it is sufficient to insert weight and message combinations for each message to only a few linear combinations at the cost increasing <span class="math inline">$m$</span> (in practice, <span class="math inline">$m = k * 2$</span> suffices). However, due to the fact that in BFV we can compute several linear combinations at the cost of one, the overhead of adding weight and message combination to each linear combination is negligible.</p>
+<br>
+</div>
+  </article>
+
+      </main>
+    </div>
+  </body>
+</html>
