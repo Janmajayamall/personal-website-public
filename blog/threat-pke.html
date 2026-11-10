@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Threat to PKE from AI · Janmajaya Mall</title>
+    
+    <link rel="canonical" href="https://janmajaya.com/blog/threat-pke.html" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+    
+    <link rel="stylesheet" href="/styles.css" />
+    
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: { fontCache: 'global' }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page-shell article-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current="page">Blogs</a>
+        <a href="/notes/">Notes</a>
+        
+      </nav>
+      <main id="main">
+        
+  <a class="back-link" href="/">← Back to blogs</a>
+  <article class="post">
+    <header class="post-header">
+      
+  <p class="blog-date"><a href="/blog/threat-pke.html"><time datetime="2026-11-10T00:00:00&#43;05:30">November 10, 2026</time></a></p>
+
+
+      <h1>Threat to PKE from AI</h1>
+      
+      
+
+    </header>
+    <div class="post-content"><p>There is a plausible threat to public key encryption from advances in AI:</p>
+<p>(a) AI may find new exploitable structures in RSA, elliptic curves, finite-field discrete log, or lattices. This could mean faster classical attacks on any of them, or an efficient quantum algorithm for lattices.</p>
+<p>(b) AI will accelerate large scale quantum computers, both by advancing hardware (and improvements to error correction), and improvements to Shor&rsquo;s algorithm.</p>
+<p>And hashes cannot save the day, because, while discounting that they themselves are structured &amp; vulnerable to advances in AI albeit being more conservative, it&rsquo;s impossible to construct PKE from only one-way functions &amp; random oracle (ie hash functions).</p>
+<p>Others provide <a href="https://arxiv.org/abs/2411.09131">better</a>
+ <a href="https://arxiv.org/abs/2609.09582">evidence</a>
+ for (b) than I can. For (a) it&rsquo;s well known that an attack exploits a structure. The primtives standing today have survived decades of scrutiny, albeit with limited effort of the ones that could afford <sup id="fnref:1"><a href="#fn:1" class="footnote-ref" role="doc-noteref">1</a></sup>. And overtime we&rsquo;ve settled onto a few structures that the primitives are allowed. However, the times they are a-changin'.</p>
+<p>LLMs have all of humanity&rsquo;s knowledge and can search over it faster than any cryptoanalyst. If there exists a attacks discoverable by effectively traversing the search tree using all known knowledge, then frontier models will <a href="https://www.anthropic.com/research/discovering-cryptographic-weaknesses#an-improved-key-recovery-attack-on-hawk">find</a>
+ them. Even in the case where attacks require new insights, I think, frontier models are likely to score them. Either by learning to create new knowledge or by the virtue of step-change insights often researchers leak to LLMs over the course of a conversation. They will not only score, they will score fast. Previosuly, key insights did not always immediately translate into attacks but now they do<sup id="fnref:2"><a href="#fn:2" class="footnote-ref" role="doc-noteref">2</a></sup>.</p>
+<p>It’s likely that any damaging attack will first be discovered by a frontier lab. I suspect the labs will play the closed-door game to avoid causing large, imminent damage to the world. This is a very sensible move. But they can’t expect the game to last more than ~6 months, a year at most, because open-source models catch up with frontier models fast!</p>
+<p>If you care about public key encryption, there are enough reasons not to ignore the threat. Find some way to accelerate the development of new alternative primitives for PKE (AI can help us speedrun this!). While, no one wishes to need them soon, but for better or worse, the chances of us needing them in a few years are not slim.</p>
+<p>I don’t have a clear idea of what properties the new primitives must have to be safe against more powerful AI. But being conservative and demanding little to no structure seems reasonable. And since I’m writing this, I’ll mention local-mixing, to which I was fortunate to make small contributions wherever I could help. It started as an approach to indistinguishability obfuscation, which I think is still its main objective. But over time it became clear to me (&amp; others) that it’s also a new low-level primitive for constructing cryptographic tools. For example, Ran and his students are developing <a href="https://eprint.iacr.org/2026/1398">PKE with local-mixing</a>
+ as the base assumption.</p>
+<div class="footnotes" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn:1">
+<p>Even for the some of the most used cryptographic primitvie, the ones that have tried to attack them are relatively few specialists&#160;<a href="#fnref:1" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:2">
+<p>a theoerem from 1997 broke SIDH in 2022, whereas in about 60 hours Claude turned an unexploited symmetry into an attack on HAWK.&#160;<a href="#fnref:2" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+</ol>
+</div>
+</div>
+  </article>
+
+      </main>
+    </div>
+  </body>
+</html>

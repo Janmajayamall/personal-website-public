@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yet another privacy solution on Ethereum · Janmajaya Mall</title>
+    
+    <link rel="canonical" href="https://janmajaya.com/blog/yapsoe.html" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
+    
+    <link rel="stylesheet" href="/styles.css" />
+    
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: { fontCache: 'global' }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page-shell article-shell">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-current="page">Blogs</a>
+        <a href="/notes/">Notes</a>
+        
+      </nav>
+      <main id="main">
+        
+  <a class="back-link" href="/">← Back to blogs</a>
+  <article class="post">
+    <header class="post-header">
+      
+  <p class="blog-date"><a href="/blog/yapsoe.html"><time datetime="2026-07-04T00:00:00&#43;05:30">July 4, 2026</time></a></p>
+
+
+      <h1>Yet another privacy solution on Ethereum</h1>
+      
+      
+
+    </header>
+    <div class="post-content"><p>There are multiple approaches for privacy on public blockchains: 2-state commitment+nullifier model, MPC/threshold-FHE, and TEEs. Each with its own set of benefits &amp; limitations. Here I attempt to sketch yet another privacy solution. Like others, it has limitations and some advantages. It&rsquo;s limited in the sense that it does not provide as strong as privacy guarantees as 2-state commitment+nullifer model. Its advantages are that it&rsquo;s compatible with the EVM state model, while providing stronger guarantees than any FHE/MPC solution, or validiums.</p>
+<p>To start, let&rsquo;s develop a mental apparatus to weigh different privacy solutions. Threshold FHE/MPC are two sides of the same coin. Both provide cryptographic guarantees under threshold assumption (i.e. the majority doesn&rsquo;t collude). In some cases, FHE may fare better, trust-wise, due to its ability to scale to a relatively large committee size. Whereas, vanilla MPC becomes problematic, due to unavoidable spike in communication, as no. of parties go beyond 3-4. On the other hand, (verifiable) MPC is cheap and FHE, especially verifiable FHE, is very <em>very</em> expensive. Then there are TEEs that require trust in, both, the hardware manufacturer and the cloud provder. Markets have forced TEE providers to close TEE performance gap with normal servers, while, as a matter ofcourse, introducing multiple, sometimes &ldquo;silly&rdquo; yet, catastrophic vulnerabilities. Nonetheless, TEEs are incredibly versatile. For example, TEEs are paired with (1) FHE, for cryptographic privacy guarantees and hardware based proof of execution (2) zero-knowledge proofs, for cryptogrphic execution guarantees and hardware based privacy.</p>
+<p>In our solution, we draw a clean separation between custody of the state and execution. The long-term state is held encrypted, under the custody of a largish set of parties and execution (i.e. state update) occurs inside an independent &amp; stateless substrate, with different guarantees. Concretely, the state is stored encrypted under an ideal secret key (&lsquo;ideal&rsquo; means unknown). The ideal key is stored collectively, in a threshold fashion, by a set of parties. Each party stores only one, independent, shard of the key. One can decrypt a ciphertext, in the state, only when enough (i.e. &gt;= threshold no. of) parties agree on the decryption. Execution occurs inside a TEE (or any other substrate, with better privacy guarantees: MPC, FHE), which (a) proves its authencity to the secret shard holders, (b) receives enough shards for reconstruction of the ideal secret, and (c) decrypts the state and updates it as per execution instructions.</p>
+<h2 id="encrypted-smart-contract-state--execution">Encrypted smart contract state &amp; execution</h2>
+<p>EVM smart contract state is a 32-byte key-value store. We use a symmetric encryption scheme, like AES-GCM, to encrypt a smart contract&rsquo;s state using an ideal AES secret key. Then we use shamir secret sharing to thresholdize the ideal secret key among the set of parties (the secret shard holders). Concretely, for every key-value slot in the state, (1) store the AES-GCM ciphertext encrypting the original value in the slot, (2) store the ciphertext&rsquo;s respective nonce and the tag (both artifacts of AES-GCM encryption), concatenated (12 bytes + 16 bytes = 28 bytes &lt; 32 bytes) under a, different, but still contract owned, NonceTagContract against the same key as the ciphertext.</p>
+<figure>
+<img src="./images/yapsoe-contract-state-model.svg" alt="State of normal contract constrasted with a smart contract with encrypted state. Smart contract with encrypted state requires a companion NonceTagContract that stores ciphertext specific nonce+tag at the same key slot." />
+<figcaption>
+<p>State of normal contract constrasted with a smart contract with encrypted state. Smart contract with encrypted state requires a companion NonceTagContract that stores ciphertext specific nonce+tag at the same key slot.</p>
+<p><em>Please excuse the overflows. The image is generated by Chatgpt and I wasn&rsquo;t patient enough to get it, exactly, right.</em></p>
+</figcaption>
+</figure>
+<p>User calls the smart contract as they would any other normal (as in, with public state) contract. However, since the storage slots of the smart contract store (AES) ciphertexts, no contract methods are executed directly. User transaction contains (1) encrypted EIP712 message and (2) signature (signature is not encrypted!). The EIP712 message defines the actual method call. All user transactions are publicly addressed to a single method, called <code>sequence</code>. <code>sequence</code> receives the encrypted message, and the signature, and appends them to a list of pending txs. Since the smart contract&rsquo;s own storage is encrypted, it appears cleaner to use another &ldquo;sequencer&rdquo; contract, owned by the main contract, that stores pending (&amp; processed) txs.</p>
+<p>Every now and then, batch of sequenced (i.e. pending) txs are processed. As a preprocessing step (as in, even before users can send txs for execution), an execution environment inside an enclave is setup. Then the enclave attests itself with the smart contract and, as a consequence, to the threshold set of parties. It then communicates an enclave specific public key, of which the corresponding secret key lives inside the enclave, to the smart contract. Anyone can use the public key to communicate messages, privately, to the enclave. Users encrypt EIP712 messages using the enclave&rsquo;s public key. Atleast, threshold number of parties communicate their shards of the ideal secret key, encrypted with enclave&rsquo;s public key, to the enclave. Enclave reconstructs the ideal secret key from the received shards. Then uses the ideal secret to decrypt the contract&rsquo;s state as required and processes the batch of pending transactions. Enclave records the updated storage slots, their respective updated ciphertexts &amp; nonces+tags. It then sends the records to the smart contract, which then updates the storage slots with respective new values for ciphertexts &amp; nonces+tags. Smart contract then marks the batch of txs as processed.</p>
+<p>Above, we use TEE, in stateless fashion, for private execution and threshold set of parties for custody of the encrypted state. The combination is more resilient than using TEE alone. In particular, the setup allows to swap out a TEE, with recently discovered vulnerabilities<sup id="fnref:1"><a href="#fn:1" class="footnote-ref" role="doc-noteref">1</a></sup>, with another TEE with necessary patches. Or swap TEE with MPC based private execution.</p>
+<p>However, we&rsquo;re still using TEE for the correctness guarantee (i.e. trusting that the TEE executes faithfully) and it&rsquo;s objectively better to have cryptographic execution guarantees. This is where zero-knowledge proofs come into picture. The enclave also produces a zk-proof of execution and the smart contract accepts the update records, for a batch of txs, only if the proof is vaild. But, proof of execution for arbitrary computation, especially with RAM reads/writes, is expensive. Luckily, majority of the most valuable smart contract functionalities (transfers, lending, etc.) are simple functions, with only few state accesses. Thus, such functions can be expressed as <a href="https://en.wikipedia.org/wiki/Pure_function">pure</a>
+ functions where the necessary state reads are fed as inputs and writes are produced as outputs. There&rsquo;s no need to prove state reads/writes because, since state values are ciphertexts, they can be set as public inputs of the function specific circuit. Then the job of correct reads/writes is offloaded to the smart contract.</p>
+<p>Our construction has one major limitation. Since, the state values are ciphertexts, the smart contract with private state cannot be composed wth other normal contracts. Other than that, the construction is portable to all possible interpretations of smart contracts starting from a single smart contract to a smart contract platform (i.e. a blockchain). For example, one can deploy the construction for a single ERC20 token or deploy it for an entire EVM (i.e. rollup).</p>
+<h2 id="how-we-fare">How we fare?</h2>
+<p>How does our construction compare with other solutions? In contrast to 2-state commitment-nullifier model, our setup works directly with the account model (i.e. is compatible with infrastructure built for EVM) while having weaker privacy guarantees (threshold + hardware, in ours, vs cryptographic). Our construction, unlike 2-state commitment-nullifier model, does not hide state addresses. However, for the latter, I believe, application specific methods can be developed to reduce information leakage due public state addresses.</p>
+<p>Compared with FHE based privacy solutions, our solution is objectively better in terms of cost, speed, and execution guarantees. This is because, execution in FHE is at-least 100000x (one hundred thousand times) more expensive than execution inside TEE. For verifiable FHE, add 1 more zero (one million times). In terms of privacy guarantees, FHE is better since execution within the enclave happens in plaintext whereas FHE, by definition, computes on encrypted data.</p>
+<p>Our construction is compatible with co-snarks or other MPC based methods: replace TEE with secret sharing based MPC (or co-snarks for proof of execution). Doing so provides better privacy guarantees (in practice, distributes trust across 3-4 servers) with approximately 3-5x more cost. However, the servers are usually co-located, for high bandwidth communication, due to which, the gain in guarantees, keeping in purview the high additional complexity, could be slim.</p>
+<p>Validiums are a primitive version of our construction, since it&rsquo;s easy to imagine a rollup that stores the state publicly, encrypted under the custody of a threshold set of parties. Doing so, provides better privacy guarantees compared to, validiums of today with, a single entity. However, implementation is hard. Ignoring the complexity of threshold cryptography, producing proofs of EVM execution inside a distributed system built with GPU based TEEs, with no-leakage whatsoever is, at the very least, more complex than EVM execution proofs on normal servers.</p>
+<h2 id="private-transfers">Private transfers</h2>
+<p>I started down this path because I&rsquo;m interested in methods for private transfers on EVM without having to throw away existing infrastructure developed by the ecosystem, majority, if not all, of which is built on the account state model.</p>
+<p>It&rsquo;s straightforward to develop encrypted ERC20s (E-ERC20) that support transfers with encrypted amounts using our construction. This is because both the state (address =&gt; balance map) and the execution (<code>transfer</code>, <code>transferFrom</code>) methods are simple. Thus, the zk-circuits for proof of execution for the methods are light-weight as well. The heaviest pieces, as far as I can see, will be (1) the TEE (i.e. the execution environment) attesting itself to the E-ERC20 token contract, (2) threshold parties communicating their respective shards to the TEE over a private channel, (3) key-management setup per party to securely store the shard. Additional complexity will come from having to deal with key-rotations, TEE rotations necessary for any production-grade deployement. But, for now, I&rsquo;ll assume that all of these complexities are taken care of.</p>
+<figure class="code-figure">
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-rust" data-lang="rust"><span class="line"><span class="cl"><span class="k">fn</span> <span class="nf">transfer</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// pubilc inputs
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">encBalanceAIn</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">encBalanceBIn</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">encBalanceAOut</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">encBalanceBOut</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">encTransferAmtAtoB</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">){</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// AES-GCM decryption fails if AES_Sk_Ideal is incorrect. That is,
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// witness is not satisfied.
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">balanceAIn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AES_GCM_Dec</span><span class="p">(</span><span class="n">encBalanceAIn</span><span class="p">,</span><span class="w"> </span><span class="n">AES_Sk_Ideal</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">balanceBIn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AES_GCM_Dec</span><span class="p">(</span><span class="n">encBalanceBIn</span><span class="p">,</span><span class="w"> </span><span class="n">AES_Sk_Ideal</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// PublicKey encryption scheme used to encrypt messages to the enclave
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// is assumed to be CCA-secure. This implies that if either the
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// ciphertext is malformed or Enclave_Sk is incorrect the decryption
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// witness is not satisfied.
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">amt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CCASecPublicKeyEncDecrypt</span><span class="p">(</span><span class="n">encTransferAmtAtoB</span><span class="p">,</span><span class="w"> </span><span class="n">Enclave_Sk</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">assert</span><span class="w"> </span><span class="n">balanceAIn</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">amt</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">assert</span><span class="w"> </span><span class="n">balanceBIn</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">amt</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">balanceBOut</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">assert</span><span class="w"> </span><span class="n">balanceAIn</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">amt</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">balanceAOut</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// Encryption requires randomness. For example, AES-GCM requires
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// that nonce are repeated across two distinct ciphertexts with same
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// AES secret key.
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// 
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// We derive the random seed as hash function of concatenation of all the public
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// inputs. This makes r_seed unpredictable and assures same output ciphertexts 
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="c1">// across two distinct runs of the same public inputs.
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">r_seed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Keccak</span><span class="p">(</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">encBalanceAIn</span><span class="w"> </span><span class="o">||</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">encBalanceBIn</span><span class="w"> </span><span class="o">||</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">encBalanceAOut</span><span class="w"> </span><span class="o">||</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">encBalanceBOut</span><span class="w"> </span><span class="o">||</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">encTransferAmtAtoB</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">assert</span><span class="w"> </span><span class="n">encBalanceAOut</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">AES_GCM_Enc</span><span class="p">(</span><span class="n">balanceAOut</span><span class="p">,</span><span class="w"> </span><span class="n">AES_Sk_Ideal</span><span class="p">,</span><span class="w"> </span><span class="n">Keccak</span><span class="p">(</span><span class="n">r_seed</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">assert</span><span class="w"> </span><span class="n">encBalanceBOut</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">AES_GCM_Enc</span><span class="p">(</span><span class="n">balanceBOut</span><span class="p">,</span><span class="w"> </span><span class="n">AES_Sk_Ideal</span><span class="p">,</span><span class="w"> </span><span class="n">Keccak</span><span class="p">(</span><span class="n">r_seed</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div><figcaption>
+<p>Pseudo-code for zk-proof circuit of the transfer function. The public inputs are in-state balance ciphertexts (encBalanceAIn, encBalanceBIn), post-transfer new balance ciphertexts (encBalanceAOut, encBalanceBOut), encrypted transfer amount (encTransferAmtAtoB). Note that in the circuit any variable that denotes an encrypted value contains both the ciphertext and corresponding metadata (i.e. nonce + tag in case of AES-GCM), although the ciphertext &amp; nonce+tag are stored separately in the smart contract state.</p>
+</figcaption>
+</figure>
+<h3 id="unliking-sender-receiver-with-noise">Unliking sender-receiver with noise</h3>
+<p>However, transfers in encrypted ERC20s are not completely private since, given that state addresses are public, the receiver&rsquo;s address is linked with the sender&rsquo;s address. There&rsquo;s no way to unlink receiver from the sender without moving to 2-state commitment and nullifier model<sup id="fnref:2"><a href="#fn:2" class="footnote-ref" role="doc-noteref">2</a></sup>. Therefore, the best we can do is to add noise.</p>
+<p>We define a router contract, that acts like a mixer. Router is a special smart contract, operated by an external party, that batch routes all collected incoming transactions to outgoing transactions. Sender sends their E-USDX (i.e. Encrypted USDX token) transfer to the router contract, along with the encryption of the receiver&rsquo;s address, encrypted to the router operator&rsquo;s public key. Router operator, decrypts to learn the receiver&rsquo;s address and routes the transaction to the receiver. If E-USDX is used often, say it processes 10,000 txs per second, then batch routing should provide sufficient noise to prevent any receiver to be linked with the original sender. However, 10,000 txs per second is a high bar.</p>
+<p>We get around this by adding many worthless noise transactions per batch. Say that the router processes a batch of size 10,000 txs every second whereas E-USDX only processes 1 real tx per second. We introduce additional 9999 fake transactions that transfer 0 E-USDX from a random sender to a random receiver. Since, in E-USDX transfer amounts are always encrypted and encryption of 0 is indistinguishable from encryption of any other - real - amount, real transactions remain indistinguishable from fake transactions. Publicly, a sender is linked with the receiver only upto the batch size and, needless to say, the higher the batch size the greater the privacy.</p>
+<p>However, if sender A transfers frequently to sender B and E-USDX processes 1 real transactions per second, then, given fake transactions are from-to random addresses, A can be linked with B across two different batches. This is because only A-B will remain consistent in multitude of random addresses.</p>
+<figure class="code-figure">
+<pre tabindex="0"><code>Batch 1:
+    Senders   = x x x x x A x x x x .... x x x x x
+    Receivers = x x x x x x x x x x .... x x x B x
+
+Batch 2:
+    Senders   = x A x x x x x x x x .... x x x x x
+    Receivers = x x x x x x x B x x .... x x x x x
+</code></pre><figcaption>
+<p><code>x</code> are random addresses. A &amp; B are consistent across the two batches when E-USDX processes only 1 real transaction per second.</p>
+</figcaption>
+</figure>
+<p>To avoid this, we can assign a noise count, say 10,000, per real transaction within any batch. If the batch contains only 1 real tx from A to B, then random addresses are derived deterministically from addresses A+B. This assures that the link between A &amp; B always remains hidden within the set of the noise count. If there are more than 1 real transactions in a batch, then the set of random addresses can be an aggregate of the subsets, chosen at random, from noise address set of each sender-receiver pair. Link between recurrent sender, receiver pair can additionally be masked by including addresses from the noise set of the pair in batches that do not contain a real transaction between the pair.</p>
+<p>Adding noise does not necessarily need to be handled by the router. In fact, it seems better to offload noise to senders themselves, given that they will know better about their transaction patterns and privacy preferences. 3rd party tools can easily be developed that automate adding &ldquo;noise&rdquo; to user&rsquo;s transactions as per user&rsquo;s privacy preference.</p>
+<p>The router operator, since it cannot route without decrypting &amp; learning the receiver&rsquo;s address, learns the link between each sender and the receiver. Thus, the operator is trusted to keep the links private. However, the operator is autonomous and can be a TEE that self-attests to the router smart contract of correctness &amp; no-leakage, to the extent possible. On the other hand, the operator does not require to have the custody over user funds, at any point in time, to process a batch. When processing a batch, it can simply produce a zero knowledge proof that accounting of incoming and outgoing transactions checks out and recipients of outgoing transaction receive exact amounts as specified in the incoming transactions.</p>
+<h3 id="read-encrypted-balances">Read encrypted balances</h3>
+<p>In a normal ERC20 token contract, user can read their balance with <a href="https://github.com/OpenZeppelin/openzeppelin-contracts/blob/a22c8862f3fd80cd2bd5fab703b4e93ef3830040/contracts/token/ERC20/ERC20.sol#L87"><code>balanceOf</code></a>
+ call. But how does a user learn its balance, in an ERC20 token contract with encrypted state? Of course, a function like <code>balanceOf</code> will still return something (ciphertext encrypting the balance of the user). But that something is gibberish to the user.</p>
+<p>Here&rsquo;s one method that I find the most straightforward, in the sense that it&rsquo;s not a big departure from the current practice of retrieving state values using <code>view</code> method calls. We introduce additional &ldquo;view-oracles&rdquo;. View oracles are TEE boxes that have (a) attested themselves to the smart contract, like the TEE used for execution, such that the threshold set of parties deem it suitable to communicate to it their respective secret shards (b) execute only the solidity methods marked as <code>view</code> (<code>view</code> methods in solidity are only allowed to read state; no updates are allowed).</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-solidity" data-lang="solidity"><span class="line"><span class="cl"><span class="kd">contract</span> <span class="nc">EncryptedERC20</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="p">...</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="kt">bytes32</span> <span class="k">private</span> <span class="k">constant</span> <span class="n">BALANCE_VIEW_TYPEHASH</span> <span class="o">=</span>
+</span></span><span class="line"><span class="cl">            <span class="nb">keccak256</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">                <span class="s">&#34;BalanceView(address account,bytes32 responseKeyHash,address contractAddress,uint256 chainId)&#34;</span>
+</span></span><span class="line"><span class="cl">            <span class="p">);</span>
+</span></span><span class="line"><span class="cl">            
+</span></span><span class="line"><span class="cl">    <span class="kd">function</span> <span class="nf">balanceOf</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">      <span class="kt">address</span> <span class="n">account</span><span class="p">,</span> 
+</span></span><span class="line"><span class="cl">      
+</span></span><span class="line"><span class="cl">      <span class="c1">// IMPORTANT:
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// In ordinary Solidity this would be public calldata.
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// In our case, this is a confidential input delivered privately
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// to the TEE.
+</span></span></span><span class="line"><span class="cl">      <span class="kt">bytes32</span> <span class="n">responseAesGcmKey</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      
+</span></span><span class="line"><span class="cl">      <span class="kt">bytes</span> <span class="n">calldata</span> <span class="n">ownerSignature</span>
+</span></span><span class="line"><span class="cl">    <span class="p">)</span>
+</span></span><span class="line"><span class="cl">      <span class="k">external</span>
+</span></span><span class="line"><span class="cl">      <span class="k">view</span> 
+</span></span><span class="line"><span class="cl">      <span class="k">returns</span> <span class="p">(</span><span class="kt">bytes</span> <span class="k">memory</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="c1">// --------------- Authorization -----------------
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// the elaborate set of methods below is a more
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// secure way of checking that, indeed, the
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// owner of the account address wants to
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// be sent their account balance encrypted using
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// the `responseAesGcmKey`
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="kt">bytes32</span> <span class="n">responseKeyHash</span> <span class="o">=</span> <span class="n">keccak</span><span class="p">(</span><span class="n">responseAesGcmKey</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">      <span class="kt">bytes32</span> <span class="n">structHash</span> <span class="o">=</span> <span class="nb">keccak256</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">              <span class="nb">abi</span><span class="p">.</span><span class="nb">encode</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">                  <span class="n">BALANCE_VIEW_TYPEHASH</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">                  <span class="n">account</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">                  <span class="n">responseKeyHash</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">                  <span class="kt">address</span><span class="p">(</span><span class="nb">this</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">                  <span class="nb">block</span><span class="p">.</span><span class="nb">chainid</span>
+</span></span><span class="line"><span class="cl">              <span class="p">)</span>
+</span></span><span class="line"><span class="cl">          <span class="p">);</span>
+</span></span><span class="line"><span class="cl">      <span class="c1">// proper EIP-712 signable/verifiable digest
+</span></span></span><span class="line"><span class="cl">      <span class="kt">bytes32</span> <span class="n">digest</span> <span class="o">=</span> <span class="n">_hashTypedDataV4</span><span class="p">(</span><span class="n">structHash</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="kt">address</span> <span class="n">signer</span> <span class="o">=</span> <span class="n">ECDSA</span><span class="p">.</span><span class="n">recover</span><span class="p">(</span><span class="n">digest</span><span class="p">,</span> <span class="n">ownerSignature</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">      <span class="nb">require</span><span class="p">(</span><span class="n">signer</span> <span class="o">==</span> <span class="n">account</span><span class="p">,</span> <span class="s">&#34;invalid owner signature&#34;</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// -----------------------------------------------
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// --------- Encrypted balance retrieval ---------
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// 1. Retrieve AES-GCM balance ciphertext
+</span></span></span><span class="line"><span class="cl">      <span class="kt">bytes32</span> <span class="n">encryptedBalanceCiphertext</span> <span class="o">=</span> <span class="n">_encryptedBalances</span><span class="p">[</span><span class="n">account</span><span class="p">];</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// 2. Retrieve corresponding AES-GCM nonce and tag from NonceTagContract.
+</span></span></span><span class="line"><span class="cl">      <span class="p">(</span><span class="kt">bytes12</span> <span class="n">stateNonce</span><span class="p">,</span> <span class="kt">bytes16</span> <span class="n">stateTag</span><span class="p">)</span> <span class="o">=</span>
+</span></span><span class="line"><span class="cl">          <span class="n">nonceTagContract</span><span class="p">.</span><span class="n">getNonceTagForAccount</span><span class="p">(</span><span class="n">account</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// AAD (=additional authenticated data) used for the encrypted state itself.
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// This must match the AAD used when the balance was originally encrypted.
+</span></span></span><span class="line"><span class="cl">      <span class="kt">bytes</span> <span class="k">memory</span> <span class="n">stateAAD</span> <span class="o">=</span> <span class="nb">abi</span><span class="p">.</span><span class="nb">encode</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">          <span class="s">&#34;ERC20_BALANCE_STATA_V1&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="kt">address</span><span class="p">(</span><span class="nb">this</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">          <span class="nb">block</span><span class="p">.</span><span class="nb">chainid</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">account</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// 3. Decrypt AES-GCM ciphertext inside the confidential runtime.
+</span></span></span><span class="line"><span class="cl">      <span class="c1">//
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// `encryptedRuntime.decryptAESGCMUint256` is an external call outside 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// of the EVM. This call runs in an environment with reconstructed 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// ideal AES-GCM secret key that is used in the decryption procedure.
+</span></span></span><span class="line"><span class="cl">      <span class="kt">uint256</span> <span class="n">balancePlaintext</span> <span class="o">=</span> <span class="n">encryptedRuntime</span><span class="p">.</span><span class="n">decryptAESGCMUint256</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">          <span class="n">encryptedBalanceCiphertext</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">stateNonce</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">stateTag</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">stateAAD</span>
+</span></span><span class="line"><span class="cl">      <span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// -----------------------------------------------
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// --------- Re-encrypt &amp; return balance ---------
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// encrypt account&#39;s balancePlaintext under 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// owner attested `ephemeralPublicKey`
+</span></span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// 1. AAD used for encrypting the response to the owner.
+</span></span></span><span class="line"><span class="cl">      <span class="kt">bytes</span> <span class="k">memory</span> <span class="n">outputAAD</span> <span class="o">=</span> <span class="nb">abi</span><span class="p">.</span><span class="nb">encode</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">          <span class="s">&#34;ERC20_BALANCE_VIEW_V1&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="kt">address</span><span class="p">(</span><span class="nb">this</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">          <span class="nb">block</span><span class="p">.</span><span class="nb">chainid</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">account</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="n">responseKeyHash</span>
+</span></span><span class="line"><span class="cl">      <span class="p">);</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">      <span class="c1">// 2. encrypt &amp; return to the owner their balance encrypted using 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// supplied `responseAesGcmKey`. 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// 
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// `encryptedRuntime.encryptAESGCMUint256` makes a call outside
+</span></span></span><span class="line"><span class="cl">      <span class="c1">// the EVM to sample `nonce` at random.
+</span></span></span><span class="line"><span class="cl">      <span class="k">return</span> <span class="n">encryptedRuntime</span><span class="p">.</span><span class="n">encryptAESGCMUint256</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">        <span class="n">balancePlaintext</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="n">responseAesGcmKey</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="n">outputAAD</span>
+</span></span><span class="line"><span class="cl">      <span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="p">...</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>Above is a rough sketch of <code>balanceOf</code> view method in an encrypted ERC20 token. Although, the method body looks really heavy compared with the simple <code>balanceOf</code> view method of a normal ERC20 token (which only requires the single line <code>return _balances[account];</code>), the logic is straightforward:</p>
+<ul>
+<li>user communicates the inputs of the <code>balanceOf</code> method (<code>account</code>, <code>responseAesGcmKey</code>, and <code>ownerSignature</code>) privately to the view-oracle TEE box.</li>
+<li>TEE box executes the <code>balanceOf</code> method on the inputs. The method:
+<ol>
+<li>validates that the <code>responseAesGcmKey</code> indeed comes from the user that owns the <code>account</code> by validating <code>ownerSignature</code> against the <code>account</code> address.</li>
+<li>decrypts <code>account</code>&rsquo;s AES balance ciphertext using the ideal AES secret key.</li>
+<li>re-encrypts the <code>account</code>&rsquo;s balance plaintext (obtained in (2)) back to the user using <code>responseAesGcmKey</code>.
+And that&rsquo;s it! Blame the heaviness of the function on the un-avoidable burden of &lsquo;secure implementation&rsquo;.</li>
+</ol>
+</li>
+</ul>
+<p>Now, the users making private queries to the view-oracle TEE box to retrieve their encrypted ERC20 token balances seems acceptable. But how does a user know that they are not being cheated upon? In the case of execution we solved it, <em>quite trivially</em>, by claiming that the execution TEE produces a zk-proof of execution. Ofcourse, the same can be done here. The TEE sends a proof to the user that it executed the <code>balanceOf</code> method correctly. But, does this scale? Users make a lot more queries to view their balances than send transactions. Proof per transaction is acceptable, but proof per request sounds like signing up for a disaster.</p>
+<p>There are two paths forward: (a) have multiple view-oracle TEE boxes. User sends query to all and only accepts the responses if all (or majority) match. (b) we somehow nail down a proof method that is as cheap as a few hashes or group operations. The latter is yet to be figured out.</p>
+<div class="footnotes" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn:1">
+<p>however if the discovered vulnerability is exploited, then we&rsquo;re doomed!&#160;<a href="#fnref:1" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+<li id="fn:2">
+<p>as all of us are aware, the best solution - with perfect theoretical cryptographic guarantees - for private state (consequently private transfers with both amount + address hiden) today is 2-state commitment nullifier model. Which, quite ironically, is incompatible with the account model and asks us to start from scratch.&#160;<a href="#fnref:2" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+</ol>
+</div>
+</div>
+  </article>
+
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Notes on Janmajaya Mall</title>
+		<link>https://janmajaya.com/notes/</link>
+		<description>Recent content in Notes on Janmajaya Mall</description>
+		<generator>Hugo</generator>
+		<language>en</language>
+		
+		
+		
+		
+			<lastBuildDate>Tue, 29 Sep 2026 23:02:29 +0530</lastBuildDate>
+		
+			<atom:link href="https://janmajaya.com/notes/index.xml" rel="self" type="application/rss+xml" />
+			<item>
+				<title>September 29, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-29/</link>
+				<pubDate>Tue, 29 Sep 2026 23:02:29 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-29/</guid>
+				<description>&lt;p&gt;I felt I should capture &amp;lsquo;&lt;a href=&#34;https://forums.somethingawful.com/showthread.php?threadid=2932975&#34;&gt;I run slow&lt;/a&gt;&#xA;&amp;rsquo;  here, just to remind my future self (thanks &lt;a href=&#34;https://x.com/phildaian/status/2104773163867599243&#34;&gt;Phil Daian&lt;/a&gt;&#xA; for sharing)&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>September 25, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-25/</link>
+				<pubDate>Fri, 25 Sep 2026 12:55:17 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-25/</guid>
+				<description>&lt;p&gt;I came across &lt;a href=&#34;https://terrytao.wordpress.com/2026/09/24/were-gonna-need-a-lot-more-mathematicians/&#34;&gt;this&lt;/a&gt;&#xA; post from Amit Sahai. The most important point he makes is to invest into the collective human understanding of new ideas discovered by AI or a human-AI collaboration. It&amp;rsquo;ll be a waste if we fail to use the new results to develop a deeper understanding of the world. And it&amp;rsquo;ll very bad, perhaps even lethal, to live in a world surrounded by systems that no human understands.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>September 20, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-20/</link>
+				<pubDate>Sun, 20 Sep 2026 12:50:17 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-20/</guid>
+				<description>&lt;p&gt;KK&amp;rsquo;s &lt;a href=&#34;https://kevinkelly.substack.com/p/arguments-in-favor-of-ai-fair-use&#34;&gt;essay&lt;/a&gt;&#xA; is enlightning. His description that capabilities of LLMs is an emergent property of tranformation of millions of sources into the latent space is sharp.&lt;/p&gt;&#xA;&lt;p&gt;I also find the comment &amp;rsquo;the latent space is the new commons&amp;rsquo; interesting. Needless to say, LLMs are incredibly powerful. It&amp;rsquo;s strategically important to saturate LLMs, both for a nation that wants to remain relevant and humanity to progress at a rapid pace. And it&amp;rsquo;s a shame that the frontier models are not universally available (even when one is willing to pay the cost). I hope governments recognize this and direct substantial portion of tax payer&amp;rsquo;s money to (a) develop public intelligence, and (b) have LLMs saturate in its population.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>September 14, 2026</title>
+				<link>https://janmajaya.com/notes/2026-09-14/</link>
+				<pubDate>Mon, 14 Sep 2026 12:43:17 +0530</pubDate>
+				<guid>https://janmajaya.com/notes/2026-09-14/</guid>
+				<description>&lt;p&gt;This article from &lt;a href=&#34;https://lucumr.pocoo.org/2026/9/5/latent-powers/&#34;&gt;pocoo&lt;/a&gt;&#xA; is closely related to some of our product thinking on PAC. It&amp;rsquo;s true that LLMs are incredibly useful in pursuing &amp;lsquo;random&amp;rsquo; interests, or long-due ideas/experiments, not only for hackers but, increasingly, for the general crowd. Many of the interests are nothing new. It&amp;rsquo;s likely that someone has already tried out something similar before. And so, a LLM gradually nudges the user towards a suitable solution. A unsurprising consequence of this is that the end results often overlap.&lt;/p&gt;</description>
+			</item>
+	</channel>
+</rss>
